@@ -1,5 +1,5 @@
 /*
- * Vault Pet 1.3.1 — Obsidian plugin (built 2026-10-10)
+ * Vault Pet 1.3.2 — Obsidian plugin (built 2026-10-12)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -7192,7 +7192,8 @@ class KitCommitPlugin extends Plugin {
     const long = this.lastType - this.typeStart >= BURST_DONE;
     if (long) brain.hook({ name: 'Stop', at: Date.now(), sessionId: 'obsidian' });
     else {
-      brain.generating = 0;
+      // generating 은 이제 읽기 전용(세션별 gen) — 대입하면 strict 모드에서 던지고 고양이가 계속 타이핑한다 (이슈 #4)
+      brain.clearSession('obsidian');
       brain.tick();
     }
   }

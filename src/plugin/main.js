@@ -658,7 +658,8 @@ class KitCommitPlugin extends Plugin {
     const long = this.lastType - this.typeStart >= BURST_DONE;
     if (long) brain.hook({ name: 'Stop', at: Date.now(), sessionId: 'obsidian' });
     else {
-      brain.generating = 0;
+      // generating 은 이제 읽기 전용(세션별 gen) — 대입하면 strict 모드에서 던지고 고양이가 계속 타이핑한다 (이슈 #4)
+      brain.clearSession('obsidian');
       brain.tick();
     }
   }

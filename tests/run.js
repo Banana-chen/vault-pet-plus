@@ -27,7 +27,7 @@ class FakeMenu {
   showAtPosition() {}
   showAtMouseEvent() {}
 }
-const fakeObsidian = { Menu: FakeMenu, Notice: class {}, setIcon() {}, Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Setting: class {}, TFile: class {}, TFolder: class {}, addIcon() {} };
+const fakeObsidian = { Menu: FakeMenu, Notice: class {}, setIcon() {}, Plugin: class {}, ItemView: class {}, Modal: class {}, PluginSettingTab: class {}, Setting: class {}, TFile: class {}, TFolder: class {}, addIcon() {} };
 const origLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === 'obsidian') return fakeObsidian;
@@ -313,6 +313,21 @@ test('host: 타이핑 hook 흉내 — 쓰는 동안 thinking, 빈 노트는 wait
   b.answered();
   b.tick();
   assert.notStrictEqual(b.mood, 'waiting');
+});
+
+test('plugin: 짧게 쓰고 손을 떼면 타이핑을 멈춘다 (이슈 #4)', () => {
+  const KitCommitPlugin = require(path.join(src, 'plugin/main'));
+  const { host } = makeHost();
+  const b = host.brain;
+  const now = Date.now();
+  b.hook({ name: 'UserPromptSubmit', at: now - 25_000, sessionId: 'obsidian' });
+  assert.strictEqual(b.mood, 'thinking');
+  // 5초 쓰고 20초 쉼 → typeStop 의 짧은 쓰기 갈래 (Stop hook 없이 끝낸다)
+  const self = { host, typing: true, typeStart: now - 25_000, lastType: now - 20_000 };
+  KitCommitPlugin.prototype.typeStop.call(self);
+  assert.strictEqual(self.typing, false);
+  assert.strictEqual(b.gen.size, 0);
+  assert.notStrictEqual(b.mood, 'thinking');
 });
 
 test('host: 트레이·우클릭 메뉴가 만들어진다', () => {
