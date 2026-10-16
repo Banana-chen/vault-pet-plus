@@ -147,17 +147,17 @@ test('achievements: 아이디가 겹치지 않고, 이름·설명·묶음 이름
   for (const a of ACHIEVEMENTS) {
     assert.ok(!ids.has(a.id), 'dup ' + a.id);
     ids.add(a.id);
-    for (const lang of ['ko', 'en']) {
+    for (const lang of I18N.LANGS) {
       assert.ok(I18N.UI[lang][`ach.${a.id}.name`], `${lang} ach.${a.id}.name`);
       assert.ok(I18N.UI[lang][`ach.${a.id}.desc`], `${lang} ach.${a.id}.desc`);
     }
   }
-  for (const c of CATS) for (const lang of ['ko', 'en']) assert.ok(I18N.UI[lang]['ach.cat.' + c], `${lang} ach.cat.${c}`);
+  for (const c of CATS) for (const lang of I18N.LANGS) assert.ok(I18N.UI[lang]['ach.cat.' + c], `${lang} ach.cat.${c}`);
 });
 
 test('i18n: 퀘스트·홈·설정 글에 Claude·토큰 이야기가 안 남았다', () => {
   const keys = ['quest.chars', 'quest.links', 'quest.notes', 'quest.sessions', 'quest.opens', 'home.todayChars', 'shop.sub', 'shop.rate', 'dash.sub', 'mood.thinking', 'mood.waiting', 'slot.workSub', 'slot.doneSub', 'set.projectsSub', 'w.body1', 'w.privacy', 'card.headline', 'card.shareText', 'tray.today'];
-  for (const lang of ['ko', 'en']) {
+  for (const lang of I18N.LANGS) {
     for (const k of keys) {
       const v = I18N.UI[lang][k];
       assert.ok(v, `${lang} ${k}`);
@@ -393,7 +393,7 @@ test('legacy: 뜻이 같은 설정만 옮기고, 뺀 폴더는 맨 윗단 해시
   const ids = u.projects(['Templates']).map((p) => p.id);
   assert.deepStrictEqual([...s.excludedProjects].sort(), [...ids].sort(), '하위 폴더(Journal/Private)만 뺀 것은 맨 윗단 전체로 넓히지 않는다');
   assert.strictEqual(legacyMod.legacySummary(oldData(Date.now())).partialFolders, 1);
-  for (const lang of ['ko', 'en']) assert.ok(I18N.UI[lang]['legacy.folders'].includes('{n}'), lang);
+  for (const lang of I18N.LANGS) assert.ok(I18N.UI[lang]['legacy.folders'].includes('{n}'), lang);
   assert.ok(!('language' in legacyMod.legacySettings({ settings: { language: 'auto' }, state: {} })));
 });
 
@@ -406,7 +406,7 @@ test('legacy: 기념 코스튬은 상점에서 못 사고, 받은 사람에게�
   host.shop.give({ item: legacyMod.LEGACY_COSTUME });
   assert.ok(has());
   assert.strictEqual(host.shop.blocker(legacyMod.LEGACY_COSTUME), 'owned');
-  for (const lang of ['ko', 'en']) {
+  for (const lang of I18N.LANGS) {
     assert.ok(I18N.UI[lang]['item.' + legacyMod.LEGACY_COSTUME], lang + ' item name');
     for (const k of ['title', 'thanks', 'body', 'coins', 'costume', 'note', 'ok', 'wear']) assert.ok(I18N.UI[lang]['legacy.' + k], `${lang} legacy.${k}`);
   }
@@ -485,7 +485,7 @@ test('safedata: 백업은 하루에 한 번, 고양이가 있는 자료만', asy
 });
 
 test('i18n: 의견 보내기·저장 파일 안내·자랑 카드에 플러그인 이름', () => {
-  for (const lang of ['ko', 'en']) {
+  for (const lang of I18N.LANGS) {
     for (const k of ['obs.feedback', 'obs.feedbackDesc', 'obs.feedbackBtn', 'obs.dataRestored', 'obs.dataLost']) assert.ok(I18N.UI[lang][k], lang + ' ' + k);
     for (const k of ['card.footer', 'card.shareText']) assert.ok(I18N.UI[lang][k].includes('Vault Pet'), lang + ' ' + k);
   }
@@ -534,7 +534,7 @@ test('host: 비눗방울 — 장난감과 모션이 키를 나눠 쓴다 (예전
   assert.strictEqual(shop.find('bubbleplay').kind, 'motion');
   const keys = [...shop.ACCESSORIES, ...shop.FOODS, ...shop.TOYS, ...shop.MOTIONS].map((x) => x.key);
   assert.strictEqual(new Set(keys).size, keys.length, '상점 키가 겹치지 않는다');
-  for (const lang of ['ko', 'en']) assert.ok(I18N.UI[lang]['motion.bubbleplay'], lang);
+  for (const lang of I18N.LANGS) assert.ok(I18N.UI[lang]['motion.bubbleplay'], lang);
   // 예전 저장: 장난감 'bubbles' 를 샀고 모션 자리에 'bubbles' 를 끼워 뒀다
   const { host, settings, state } = makeHost({ state: { items: ['bubbles'] }, settings: { idleMotions: ['bubbles', 'loaf'], motions: { done: ['bubbles'] } } });
   assert.ok(state.get('items').includes('bubbleplay'));
@@ -611,7 +611,7 @@ test('star shop: 별 코스튬 · 별 털색은 별로만 사고, 코스튬 개�
   const shop = require(path.join(src, 'core/shop'));
   const stars = shop.ACCESSORIES.filter((x) => x.stars);
   assert.strictEqual(stars.length, 56);
-  for (const lang of ['ko', 'en']) for (const it of stars) assert.ok(I18N.UI[lang]['item.' + it.key], `${lang} item.${it.key}`);
+  for (const lang of I18N.LANGS) for (const it of stars) assert.ok(I18N.UI[lang]['item.' + it.key], `${lang} item.${it.key}`);
   const { host } = makeHost();
   const sum = host.shop.summary();
   assert.ok(sum.star.length === 59 && !sum.acc.some((x) => x.stars), '별 물건은 코인 상점에 없다');
@@ -632,7 +632,7 @@ test('star shop: 별 코스튬 · 별 털색은 별로만 사고, 코스튬 개�
 test('ears: 귀 모양은 정해진 13가지만, 고르면 펫 판에 바로 간다', async () => {
   const { host, sent } = makeHost();
   assert.strictEqual(growth.EAR_SHAPES.length, 13);
-  for (const lang of ['ko', 'en']) for (const k of growth.EAR_SHAPES) assert.ok(I18N.UI[lang]['ear.' + k], `${lang} ear.${k}`);
+  for (const lang of I18N.LANGS) for (const k of growth.EAR_SHAPES) assert.ok(I18N.UI[lang]['ear.' + k], `${lang} ear.${k}`);
   assert.strictEqual((await host.onInvoke('house:set', null, { ears: 'fox' })).settings.ears, 'fox');
   assert.strictEqual((await host.onInvoke('house:set', null, { ears: 'wings' })).settings.ears, 'fox');
   assert.ok(sent.some(([ch, x]) => ch === 'pet:config' && x.ears === 'fox'));
@@ -680,7 +680,7 @@ test('host: 리캡 카드 숫자는 card:recap 으로, 카드에 Claude · 토�
   const { host } = makeHost();
   const r = await host.onInvoke('card:recap', null, 'all');
   for (const k of ['written', 'links', 'notes', 'sessions', 'activeDays', 'streak', 'coins', 'daily', 'levelTo']) assert.ok(r[k] !== undefined, k);
-  for (const lang of ['ko', 'en']) {
+  for (const lang of I18N.LANGS) {
     for (const k of ['rc.headline', 'rc.shareText', 'rc.notes', 'rc.folders', 'card.headline', 'card.shareText', 'mgroup.claude', 'mgroup.sub.claude', 'set.themeSub', 'shop.starRoad', 'ach.bored_10.desc', 'wn.bubble.d', 'wn.streak.t', 'wn.streak.d']) {
       const v = I18N.UI[lang][k];
       assert.ok(v, `${lang} ${k}`);
@@ -761,6 +761,60 @@ test('house.css: 빌드하면 중첩 · :has · !important 가 없다 (옵시디
     assert.ok(!(again >= 0 && again < close), 'nested block at ' + css.slice(i, i + 60));
     i = open + 1;
   }
+});
+
+/* ── 중국어 (zh) ── */
+// 빠진 글은 한국어로 나온다 (Strings.t · lines 가 ko 로 떨어진다). 그래서 영어에 있는 건 중국어에도 다 있어야 한다
+const placeholders = (s) => [...String(s).matchAll(/\{(\w+)/g)].map((m) => m[1]);
+test('i18n zh: 영어에 있는 화면 글 · 대사 종류가 중국어에도 다 있고, {자리}가 같다', () => {
+  assert.ok(I18N.LANGS.includes('zh'), 'LANGS');
+  const en = I18N.UI.en;
+  const zh = I18N.UI.zh;
+  const missing = Object.keys(en).filter((k) => !(k in zh));
+  assert.deepStrictEqual(missing, [], 'zh UI 빠짐');
+  for (const k of Object.keys(en)) {
+    assert.strictEqual(typeof zh[k], 'string', k);
+    assert.deepStrictEqual([...new Set(placeholders(zh[k]))].sort(), [...new Set(placeholders(en[k]))].sort(), `UI ${k}: ${zh[k]}`);
+    assert.strictEqual((zh[k].match(/\|\|/g) || []).length, (en[k].match(/\|\|/g) || []).length, `UI || ${k}`);
+    assert.ok(!/[\uac00-\ud7a3]/.test(zh[k]), `UI 한글 ${k}: ${zh[k]}`);
+  }
+  const kinds = Object.keys(I18N.LINE.en);
+  assert.deepStrictEqual(kinds.filter((k) => !I18N.LINE.zh[k] || !Array.isArray(I18N.LINE.zh[k].angel)), [], 'zh LINE 빠짐');
+  for (const kind of kinds) {
+    const enLines = I18N.LINE.en[kind].angel;
+    const zhLines = I18N.LINE.zh[kind].angel;
+    if (enLines.length) assert.ok(zhLines.length, `LINE ${kind} 비었다`);
+    const enPh = new Set(enLines.flatMap(placeholders));
+    const zhPh = new Set(zhLines.flatMap(placeholders));
+    for (const p of enPh) assert.ok(zhPh.has(p), `LINE ${kind}: {${p}} 없음`);
+    for (const p of zhPh) assert.ok(enPh.has(p), `LINE ${kind}: 영어에 없는 {${p}}`);
+    for (const s of zhLines) {
+      assert.ok(!/[\uac00-\ud7a3]/.test(s), `LINE 한글 ${kind}: ${s}`);
+      assert.ok(!/\{\w+#/.test(s), `LINE 조사 문법 ${kind}: ${s}`);
+    }
+  }
+});
+
+test('i18n zh: 물건 · 모션 이름이 다 있고, 로케일은 zh-CN', () => {
+  const shop = require(path.join(src, 'core/shop'));
+  for (const it of [...shop.ACCESSORIES, ...shop.FOODS, ...shop.TOYS]) assert.ok(I18N.UI.zh['item.' + it.key], `item.${it.key}`);
+  for (const m of shop.MOTIONS) assert.ok(I18N.UI.zh['motion.' + m.key], `motion.${m.key}`);
+  const T = new I18N.Strings('zh');
+  assert.strictEqual(T.lang, 'zh');
+  assert.strictEqual(T.locale, 'zh-CN');
+  assert.strictEqual(new I18N.Strings('en').locale, 'en-US');
+  assert.strictEqual(new I18N.Strings('ko').locale, 'ko-KR');
+  assert.ok(T.line('hello', { name: '奇奇' }).includes('奇奇'));
+});
+
+test('legacy · 설정: 언어 zh 를 받아들인다', async () => {
+  assert.strictEqual(legacyMod.legacySettings({ settings: { language: 'zh' } }).language, 'zh');
+  const { host } = makeHost();
+  await host.onInvoke('house:set', null, { language: 'zh' });
+  assert.strictEqual(host.settings.get('language'), 'zh');
+  assert.strictEqual(host.T.lang, 'zh');
+  await host.onInvoke('house:set', null, { language: 'fr' });
+  assert.strictEqual(host.settings.get('language'), 'zh', '모르는 언어는 무시');
 });
 
 (async () => {

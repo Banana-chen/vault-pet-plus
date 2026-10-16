@@ -117,7 +117,7 @@ Open the house (cat face in the ribbon, or double-click the cat; your cat's name
 - Name, size (5 steps), fur color, ear shape (13 shapes, free from the start)
 - **Theme** for the house: Cream, Cocoa, Mint milk, Sakura, Milk choco, or Auto (follows your Obsidian light or dark theme)
 - **Mute**: turns off every sound effect. Also in Obsidian's plugin settings and the command palette
-- Language (English, 한국어). It starts in the language your Obsidian is set to
+- Language (English, 한국어, 中文). It starts in the language your Obsidian is set to
 - Speech bubbles, small talk, occasional Obsidian tips
 - Lunch and dinner times, break reminder, when to get sleepy, bedtime, late-night nagging
 - Motions for every situation, with a drag-and-drop editor
@@ -193,6 +193,16 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 **My cat talks too much.** Small talk waits for a pause in your writing and comes at most once an hour. If you close its chatter within two seconds three times in a row, it stays quiet for three hours. You can also turn small talk or all bubbles off in the settings.
 
 ---
+
+### 中文
+
+**Vault Pet** 是一只会随着你在 Obsidian 里写作而成长的像素小猫。它待在工作区底部陪你一起打字，你写下的字数、链接和新笔记都会变成经验值和金币。320 套装扮、76 个动作、30 种玩具和小游戏、每日任务、165 枚成就徽章、来串门的街坊好友……写得越多，玩得越多。粘贴进来的文字和从回收站恢复的笔记不计数；笔记内容只会被读取统计，不会被保存或发送到任何地方。
+
+- **自带中文界面**：猫咪的对话、小屋、商店、成就、设置和命令全部支持简体中文。
+- 首次安装时会跟随 Obsidian 的界面语言（中文则自动选中文）。
+- 切换语言：设置 → 第三方插件 → Vault Pet → 语言，或在小屋的「设置」页里选择 中文 / English / 한국어。
+
+安装：设置 → 第三方插件 → 浏览 → 搜索 “Vault Pet”
 
 ### 한국어
 

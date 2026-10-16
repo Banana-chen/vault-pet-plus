@@ -13,7 +13,7 @@
  */
 const obsidian = require('obsidian');
 const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, TFolder, addIcon, setIcon } = obsidian;
-const { Store, DEFAULT_SETTINGS } = require('./store');
+const { Store, DEFAULT_SETTINGS, DEFAULT_PET_NAME } = require('./store');
 const { KitHost, STATE_DEFAULTS } = require('./host');
 const { KitFrame } = require('./frame');
 const { PetStage } = require('./stage');
@@ -184,6 +184,7 @@ class KitSettingTab extends PluginSettingTab {
         d
           .addOption('ko', '한국어')
           .addOption('en', 'English')
+          .addOption('zh', '中文')
           .setValue(p.settings.get('language'))
           .onChange((v) => {
             p.host.setSettings({ language: v });
@@ -213,7 +214,7 @@ class LegacyModal extends Modal {
     const p = this.plugin;
     const t = (k, v) => p.host.T.t(k, v);
     const L = p.meta.legacy;
-    const fmt = (n) => Number(n).toLocaleString(p.settings.get('language') === 'ko' ? 'ko-KR' : 'en-US');
+    const fmt = (n) => Number(n).toLocaleString(p.host.T.locale);
     this.modalEl.addClass('vaultpet-legacy');
     this.titleEl.setText(t('legacy.title'));
     const el = this.contentEl;
@@ -281,10 +282,10 @@ class KitCommitPlugin extends Plugin {
     if (firstInstall) {
       if (!(raw.settings || {}).language) {
         const lang = obsidianLanguage();
-        this.settings.data.language = lang.startsWith('ko') ? 'ko' : 'en';
+        this.settings.data.language = lang.startsWith('ko') ? 'ko' : lang.startsWith('zh') ? 'zh' : 'en';
       }
       if (legacy && legacy.petName) this.settings.data.petName = legacy.petName;
-      else if (this.settings.data.language === 'en') this.settings.data.petName = 'Kit';
+      else if (DEFAULT_PET_NAME[this.settings.data.language]) this.settings.data.petName = DEFAULT_PET_NAME[this.settings.data.language];
     }
     this.pending = new Set();
     this.pasted = new Map(); // 노트 경로 → 붙여넣기·끌어다 놓기로 들어온 글 { c, l, at } (세지 않는다)

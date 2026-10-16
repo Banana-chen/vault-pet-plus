@@ -6,7 +6,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 const T = new I18N.Strings();
 const t = (key, vars) => T.t(key, vars);
-const locale = () => (T.lang === 'en' ? 'en-US' : 'ko-KR');
+const locale = () => T.locale;
 const fmt = (n) => Math.round(n).toLocaleString(locale());
 const compact = (n) => new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 // 단계 이름은 i18n 이 갖는다 (growth.js 는 key 만 보낸다)
@@ -47,7 +47,11 @@ setInterval(() => {
 const info = (key) => `<span class="info" tabindex="0" data-tip="${esc(t('tip.' + key))}">i</span>`;
 // 큰 토큰 수는 Claude Code 화면처럼 영어 줄임(7.1B)으로
 const bigTok = (n) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
-const hourName = (h) => (h == null ? '-' : T.lang === 'en' ? `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}` : `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시`);
+const hourName = (h) =>
+  h == null ? '-'
+  : T.lang === 'en' ? `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`
+  : T.lang === 'zh' ? (h === 0 ? '凌晨0点' : h === 12 ? '中午12点' : `${h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '晚上'}${h % 12}点`)
+  : `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시`;
 const coins = (n, px = 14) => `${icon('coin', px)}<span>${t('shop.coin', { n: fmt(n) })}</span>`;
 // [옵시디언] 글자·링크·새 노트·세션·노트 열기 퀘스트
 const QUEST_ICON = { chars: 'scroll', links: 'pin', notes: 'map', opens: 'eye', msgs: 'chat', sessions: 'door', tokens: 'coin', replies: 'chats', xp: 'star', poke: 'paw', lift: 'heart', fed: 'ricebowl', snack: 'gift', catch: 'sparkle', rest: 'pillow', spend: 'moneybag', meal: 'ricebowl', early: 'sunrise' };
@@ -329,7 +333,9 @@ function drawCard(P = cardPrefsNow(), raw = cardData[P.period]) {
   const g = cv.getContext('2d');
   g.scale(S, S);
   g.imageSmoothingEnabled = false;
-  const font = (w, px) => `${w} ${px}px Pretendard, 'Malgun Gothic', sans-serif`;
+  // 중국어는 프리텐다드에 없는 한자를 중국어 글꼴로 (맑은 고딕의 한자로 섞여 나오지 않게)
+  const cjk = T.lang === 'zh' ? "'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', " : '';
+  const font = (w, px) => `${w} ${px}px Pretendard, ${cjk}'Malgun Gothic', sans-serif`;
   const text = (s, x, y, f, color = TH.ink, align = 'center') => {
     g.font = f;
     g.fillStyle = color;
@@ -1236,7 +1242,7 @@ function renderTop() {
   const s = D.settings;
   applyTheme();
   T.set(s.language, s.personality);
-  document.documentElement.lang = T.lang;
+  document.documentElement.lang = T.locale;
   document.title = t('top.title', { name: s.petName });
   $('#h-name').textContent = s.petName;
   hero.setAccessory(s.accessory);
@@ -2055,6 +2061,7 @@ const TABS = {
           <select data-key="language">
             <option value="ko" ${s.language === 'ko' ? 'selected' : ''}>한국어</option>
             <option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option>
+            <option value="zh" ${s.language === 'zh' ? 'selected' : ''}>中文</option>
           </select></div>
         <div class="field"><div class="lbl">${t('set.bubbles')}<small>${t('set.bubblesSub')}</small></div>${sw('bubblesEnabled', s.bubblesEnabled)}</div>
         <div class="field"><div class="lbl">${t('set.chatter')}<small>${t('set.chatterSub')}</small></div>${sw('chatter', s.chatter)}</div>

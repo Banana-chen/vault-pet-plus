@@ -59,6 +59,7 @@ pet.onConfig((c) => {
   scale = c.scale;
   soundOn = c.sound;
   T.set(c.language, c.personality, c.mode);
+  document.documentElement.lang = T.locale; // 중국어면 :lang(zh) 글꼴로 (pet.css)
   sprite.setFur(c.fur);
   sprite.setEars(c.ears);
   bubblesOn = c.bubbles !== false;

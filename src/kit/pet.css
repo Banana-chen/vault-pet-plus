@@ -17,6 +17,12 @@ body {
   cursor: default;
 }
 
+/* 중국어: 프리텐다드에 없는 한자는 중국어 글꼴로 (맑은 고딕의 한자가 섞이거나 두부 글자가 나오지 않게) */
+html:lang(zh),
+html:lang(zh) body {
+  font-family: 'Pretendard', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Malgun Gothic', system-ui, sans-serif;
+}
+
 /* 창은 화면 전체다. 고양이 자리(left·bottom)는 pet.js 가 정한다 */
 #pet {
   position: absolute;

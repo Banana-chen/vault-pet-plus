@@ -84,12 +84,12 @@ function legacySummary(raw, now = Date.now()) {
   };
 }
 
-// 새 판 설정으로 옮길 것. language 는 'ko' | 'en' 일 때만 ('auto' 면 옵시디언 언어를 따르게 비워 둔다)
+// 새 판 설정으로 옮길 것. language 는 'ko' | 'en' | 'zh' 일 때만 ('auto' 면 옵시디언 언어를 따르게 비워 둔다)
 function legacySettings(raw) {
   const old = (raw && raw.settings) || {};
   const out = {};
   for (const k of CARRY_SETTINGS) if (old[k] !== undefined) out[k] = old[k];
-  if (old.language === 'ko' || old.language === 'en') out.language = old.language;
+  if (['ko', 'en', 'zh'].includes(old.language)) out.language = old.language;
   // 경험치에서 뺀 폴더: 0.x 는 폴더 경로를, 새 판은 맨 윗단 폴더 이름의 해시를 쓴다.
   // 하위 폴더만 뺐던 것('Projects/Archive')은 옮기지 않는다. 맨 윗단으로 넓히면 그 폴더 전체가 빠져 버린다 (안내 창에서 알린다)
   const tops = topExcluded(old);

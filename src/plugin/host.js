@@ -1035,7 +1035,7 @@ class KitHost {
     if (d.getDate() > 7 || this.state.get('recapNudged') === key) return;
     this.state.set({ recapNudged: key });
     const r = recap(this.usage, 'last', { startedAt: this.state.get('startedAt') || 0 });
-    if (r.activeDays > 0) this.houseToast(this.T.t('toast.recapReady', { month: new Date(r.year, r.month - 1, 1).toLocaleDateString(this.T.lang === 'en' ? 'en-US' : 'ko-KR', { month: 'long' }) }), 'sparkle');
+    if (r.activeDays > 0) this.houseToast(this.T.t('toast.recapReady', { month: new Date(r.year, r.month - 1, 1).toLocaleDateString(this.T.locale, { month: 'long' }) }), 'sparkle');
   }
 
   // 누적 기록 (데스크톱판의 claudeStats 자리): 볼트 전체와 킷커밋을 켠 뒤의 기록
