@@ -1,5 +1,5 @@
 /*
- * Vault Pet 1.5.0 — Obsidian plugin (built 2026-10-19)
+ * Vault Pet 1.5.1 — Obsidian plugin (built 2026-10-19)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -5096,6 +5096,23 @@ class KitHost {
     this.minuteTick();
   }
 
+  // 다른 기기의 data.json 을 합친 뒤 (1.5.1, plugin/sync.js). 따로 들고 있던 값을 다시 읽고 화면에 다시 보낸다.
+  // 레벨은 큰 쪽으로 합쳐져서, 다른 기기에서 이미 축하한 레벨 업을 여기서 또 하지 않는다
+  reloadShared() {
+    const { settings, state, usage } = this;
+    usage.setExcluded(settings.get('excludedProjects'));
+    const g = state.get('gauge');
+    if (this.gauge && g && typeof g.food === 'number') this.gauge.g = { food: g.food, at: g.at || Date.now(), foodLockUntil: g.foodLockUntil || 0 };
+    if (this.brain) this.brain.life = state.get('life') || { hungrySince: 0, fedAt: 0 };
+    this.syncStrings();
+    this.plugin.relabel();
+    this.recomputeGrowth();
+    this.send('pet:config', this.petConfig());
+    this.pushState();
+    this.pushHouse();
+    this.plugin.updateStatus();
+  }
+
   // ---------- 글·성격 ----------
 
   syncStrings() {
@@ -6917,7 +6934,8 @@ const { KitHost, STATE_DEFAULTS } = require('./host');
 const { KitFrame } = require('./frame');
 const { PetStage } = require('./stage');
 const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./legacy');
-const { loadSafe, backupDaily } = require('./safedata');
+const { loadSafe, backupDaily, readJson } = require('./safedata');
+const { SyncBook } = require('./sync');
 const PixelArt = require('../kit/pixelart');
 const { UsageTracker, measure, folderKey, folderOf, LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET } = require('../core/usage');
 const { goalConfig, GOAL_PRESETS, GOAL_RANGE, FOCUS_LENGTHS } = require('../core/goals');
@@ -6930,6 +6948,11 @@ const PASTE_KEEP = MIN; // 붙여 넣은 글을 '세지 않을 몫'으로 들고
 const TYPE_STOP = 20_000; // 이만큼 손을 떼면 한 차례 쓰기가 끝난 것 (데스크톱판의 'Claude 가 답을 끝냈다')
 const BURST_DONE = 45_000; // 이만큼은 이어서 써야 '다 썼다' 모션을 한다
 const EMPTY_WAIT = 25_000; // 새로 만든 빈 노트가 이만큼 비어 있으면 느낌표 (데스크톱판의 '허락을 기다린다')
+// 이 기기에서 쓰지 않은 노트 변화(동기화로 온 글 · 다른 앱)는 이만큼 기다렸다 센다. 그 사이 다른 기기의 data.json 이 오면
+// 그쪽 노트 기록이 이미 그 글을 덮고 있어서 두 번 세지 않는다 (1.5.1, plugin/sync.js)
+const FOREIGN_WAIT = 30_000;
+const LOCAL_EDIT = 2 * MIN; // 이 안에 이 기기 편집기에서 손댄 노트는 이 기기에서 쓴 글
+const PREMERGE_EVERY = 10 * MIN; // 합치기 전 자료(data.premerge.json)를 남기는 간격
 
 // 사용자가 옵시디언에 설정해 둔 언어 ('ko', 'en', 'ja'…). 처음 설치할 때 고양이 언어를 이걸로 고른다.
 // getLanguage() 는 옵시디언 1.8.7 부터 있다. 그 전에는 옵시디언이 화면 언어에 맞춰 둔 moment 로케일을 본다
@@ -7210,6 +7233,7 @@ class KitCommitPlugin extends Plugin {
   async onload() {
     // 깨진 data.json 은 백업으로 되살린다 (safedata.js). 되살렸는지는 start() 에서 알린다
     const loaded = await loadSafe(this.app.vault.adapter, this.manifest.dir);
+    this.diskStamp = await this.statData(); // 마지막으로 읽거나 쓴 data.json (밖에서 바뀌었나 볼 때)
     this.loadSource = loaded.source;
     let raw = loaded.raw || {};
     // 백업할 것: 방금 잘 읽힌 자료 (0.x 자료는 곧 새 형식으로 바뀌니 빼 둔다)
@@ -7222,6 +7246,8 @@ class KitCommitPlugin extends Plugin {
     this.settings = new Store(raw.settings, DEFAULT_SETTINGS, saveHook);
     this.state = new Store(raw.state, STATE_DEFAULTS, saveHook);
     this.meta = { scanned: false, baseline: { c: 0, l: 0, n: 0, s: 0 }, ...(raw.meta || {}) };
+    // 여러 기기 합치기의 판 장부 (plugin/sync.js)
+    this.sync = new SyncBook(this.deviceId(), raw);
     // 지난번에 마지막으로 저장한 때. 그 뒤로 안 바뀐 노트는 꺼져 있던 동안 쓴 글이 아니다 (scan)
     this.prevSeen = this.meta.lastSeen || 0;
     this.usage = new UsageTracker(raw.usage);
@@ -7236,6 +7262,8 @@ class KitCommitPlugin extends Plugin {
       else if (DEFAULT_PET_NAME[this.settings.data.language]) this.settings.data.petName = DEFAULT_PET_NAME[this.settings.data.language];
     }
     this.pending = new Set();
+    this.typed = new Map(); // 노트 경로 → 이 기기 편집기에서 마지막으로 손댄 때
+    this.foreign = new Map(); // 노트 경로 → 이 기기에서 쓰지 않은 변화를 처음 본 때 (FOREIGN_WAIT)
     this.pasted = new Map(); // 노트 경로 → 붙여넣기·끌어다 놓기로 들어온 글 { c, l, at } (세지 않는다)
     this.icons = new Set();
     this.lastInput = Date.now();
@@ -7281,6 +7309,7 @@ class KitCommitPlugin extends Plugin {
     window.clearInterval(this.focusTimer);
     // 바닥에 떨어진 채 안 먹은 먹이는 창고로 돌려 둔 뒤 저장한다
     if (this.host) this.host.refundTreats();
+    this.unloading = true;
     this.saveNow();
     this.unmountStage();
     if (this.host) this.host.destroy();
@@ -7342,8 +7371,9 @@ class KitCommitPlugin extends Plugin {
     this.registerEvent(workspace.on('editor-paste', (evt, editor, info) => this.notePasted(info && info.file, evt.clipboardData)));
     this.registerEvent(workspace.on('editor-drop', (evt, editor, info) => this.notePasted(info && info.file, evt.dataTransfer)));
     // 열린 노트가 밖에서 바뀌어도 editor-change 가 온다. 편집기에 포커스가 있을 때만 타이핑으로 본다
-    this.registerEvent(workspace.on('editor-change', (editor) => {
+    this.registerEvent(workspace.on('editor-change', (editor, info) => {
       if (editor && typeof editor.hasFocus === 'function' && !editor.hasFocus()) return;
+      this.markTyped(info && info.file);
       this.onType();
     }));
     this.registerEvent(workspace.on('file-open', (f) => f && this.onOpen(f)));
@@ -7368,6 +7398,11 @@ class KitCommitPlugin extends Plugin {
     this.focusChanged();
     this.updateStatus();
     this.saveSoon();
+    // 켜는 동안 다른 기기의 data.json 이 왔으면 이제 합친다
+    if (this.mergeLater) {
+      this.mergeLater = false;
+      this.onExternalSettingsChange();
+    }
   }
 
   // 집중하는 동안만 상태 표시줄의 남은 시간을 1초마다 고친다
@@ -7436,7 +7471,15 @@ class KitCommitPlugin extends Plugin {
     return ex.length > 0 && ex.includes(folderKey(folderOf(path)));
   }
 
+  // 이 기기 편집기에서 손댄 노트 (FOREIGN_WAIT 없이 바로 센다)
+  markTyped(file) {
+    if (!file || !file.path) return;
+    this.typed.set(file.path, Date.now());
+    if (this.typed.size > 200) for (const [p, at] of this.typed) if (Date.now() - at > LOCAL_EDIT) this.typed.delete(p);
+  }
+
   notePasted(file, data) {
+    this.markTyped(file);
     if (!file || !data || typeof data.getData !== 'function') return;
     const m = measure(data.getData('text/plain') || '');
     if (!m.chars && !m.links) return;
@@ -7571,7 +7614,16 @@ class KitCommitPlugin extends Plugin {
     this.pending.clear();
     const sum = { dc: 0, dl: 0, dn: 0, feat: 0 };
     const budget = { ...FLUSH_BUDGET };
+    const now = Date.now();
+    let hold = 0;
     for (const path of paths) {
+      // 이 기기에서 쓰지 않은 변화는 조금 기다린다 (다른 기기의 data.json 이 따라오면 그쪽 노트 기록으로 걸러진다)
+      const wait = this.foreignWait(path, now);
+      if (wait > 0) {
+        this.pending.add(path);
+        hold = hold ? Math.min(hold, wait) : wait;
+        continue;
+      }
       const f = this.app.vault.getAbstractFileByPath(path);
       if (!(f instanceof TFile)) continue;
       let text;
@@ -7600,9 +7652,26 @@ class KitCommitPlugin extends Plugin {
         this.host.brain.answered();
       }
     }
+    if (hold) {
+      window.clearTimeout(this.flushTimer);
+      this.flushTimer = window.setTimeout(() => this.flush(), hold + 50);
+    }
     this.saveSoon();
     if (!sum.dc && !sum.dl && !sum.dn && !sum.feat) return;
     this.host.onUsage();
+  }
+
+  // 이 기기에서 쓰지 않은 노트 변화면 더 기다릴 시간(ms), 이 기기에서 썼거나 다 기다렸으면 0
+  foreignWait(path, now = Date.now()) {
+    if (now - (this.typed.get(path) || 0) < LOCAL_EDIT) {
+      this.foreign.delete(path);
+      return 0;
+    }
+    if (!this.foreign.has(path)) this.foreign.set(path, now);
+    const left = FOREIGN_WAIT - (now - this.foreign.get(path));
+    if (left > 0) return left;
+    this.foreign.delete(path);
+    return 0;
   }
 
   // 편집기에서 글을 쓰는 중 (데스크톱판에서 Claude 가 답을 쓰는 동안 = 노트북 꺼내 같이 타이핑)
@@ -7833,6 +7902,102 @@ class KitCommitPlugin extends Plugin {
     for (const v of this.houseViews()) if (v.leaf && typeof v.leaf.updateHeader === 'function') v.leaf.updateHeader();
   }
 
+  /* ── 여러 기기 (1.5.1, plugin/sync.js) ── */
+
+  // 이 기기 이름 (볼트마다). 동기화되지 않는 이 기기의 localStorage 에 둔다
+  deviceId() {
+    const KEY = 'vault-pet-device';
+    const app = this.app;
+    const local = `${KEY}-${app.appId || ''}`;
+    let id = null;
+    try {
+      id = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage(KEY) : window.localStorage.getItem(local);
+    } catch {
+      id = null;
+    }
+    if (typeof id === 'string' && id) return id;
+    id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try {
+      if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage(KEY, id);
+      else window.localStorage.setItem(local, id);
+    } catch {
+      // 못 남기면 켤 때마다 새 기기로 본다 (합치기가 조금 덜 정확할 뿐)
+    }
+    return id;
+  }
+
+  // 다른 기기(옵시디언 Sync · iCloud …)가 data.json 을 바꿨다. 다시 읽어 지금 것과 합친다
+  async onExternalSettingsChange() {
+    if (!this.sync || !this.host) return;
+    if (!this.started || this.host.loading || this.merging) {
+      this.mergeLater = true;
+      return;
+    }
+    this.merging = true;
+    try {
+      // 내가 방금 쓴 그대로면 볼 것 없다
+      const stamp = await this.statData();
+      if (stamp && stamp === this.diskStamp) return;
+      const { raw } = await readJson(this.app.vault.adapter, `${this.manifest.dir}/data.json`);
+      // 깨졌거나 아직 다 안 써졌으면 다음 소식을 기다린다 (지금 것은 그대로, 다음 저장이 덮는다)
+      if (!raw || !raw.settings || !raw.state) return;
+      this.diskStamp = stamp;
+      const local = this.snapshot();
+      const r = this.sync.incoming(local, raw);
+      // 상대가 어느 판까지 봤는지는 바뀐 게 없어도 적어 둔다 (다음 합치기의 공통 조상)
+      this.meta.sync = r.merged.meta.sync;
+      if (!r.changed) return;
+      this.keepPremerge(local);
+      this.applyData(r.merged);
+      this.host.reloadShared();
+      this.saveSoon();
+    } catch (e) {
+      console.error('[Vault Pet] sync', e);
+    } finally {
+      this.merging = false;
+      if (this.mergeLater && this.started && !this.host.loading) {
+        this.mergeLater = false;
+        window.setTimeout(() => this.onExternalSettingsChange(), 0);
+      }
+    }
+  }
+
+  // data.json 의 '수정 시각|크기'. 못 읽으면 null
+  async statData() {
+    try {
+      const st = await this.app.vault.adapter.stat(`${this.manifest.dir}/data.json`);
+      return st ? `${st.mtime}|${st.size}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 지금 메모리의 자료 (합치기 재료). 밥 게이지는 따로 들고 있어서 먼저 적어 둔다
+  snapshot() {
+    if (this.host && this.host.gauge) this.host.gauge.save();
+    return structuredClone({ version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta });
+  }
+
+  // 합친 자료를 메모리에 넣는다. core 모듈들이 같은 객체를 들고 있어서 갈아 끼우지 않고 안을 바꾼다
+  applyData(m) {
+    const put = (target, src) => {
+      for (const k of Object.keys(target)) if (!(k in src)) delete target[k];
+      Object.assign(target, src);
+    };
+    put(this.settings.data, m.settings || {});
+    put(this.state.data, m.state || {});
+    put(this.usage.data, m.usage || {});
+    this.meta.sync = m.meta.sync;
+  }
+
+  // 합치기 전 이 기기 자료를 data.premerge.json 으로 남긴다 (10분에 한 번까지). 합치기가 잘못돼도 되돌릴 수 있게
+  keepPremerge(local) {
+    const now = Date.now();
+    if (now - (this.premergeAt || 0) < PREMERGE_EVERY) return;
+    this.premergeAt = now;
+    this.app.vault.adapter.write(`${this.manifest.dir}/data.premerge.json`, JSON.stringify(local)).catch((e) => console.error('[Vault Pet] premerge', e));
+  }
+
   /* ── 저장 ── */
 
   // 하루에 한 번, 방금 잘 읽힌 data.json 을 data.backup.json 으로 남긴다
@@ -7860,12 +8025,31 @@ class KitCommitPlugin extends Plugin {
     this.saveTimer = window.setTimeout(() => this.saveNow(), 1500);
   }
 
-  saveNow() {
+  async saveNow() {
     window.clearTimeout(this.saveTimer);
     if (!this.settings) return;
+    // 다른 기기가 쓴 data.json 을 아직 못 합쳤으면 덮어쓰지 않는다. 먼저 합치고, 합칠 수 없는 때(켜는 중)면 뒤로 미룬다
+    if (this.sync && !this.unloading && (this.merging || this.mergeLater || (await this.diskChanged()))) {
+      if (!this.started || !this.host || this.host.loading || this.merging) return this.saveSoon();
+      await this.onExternalSettingsChange();
+    }
     this.dirty = false;
     this.meta.lastSeen = Date.now();
-    return this.saveData({ version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta }).catch((e) => console.error('[Vault Pet] save', e));
+    const data = { version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta };
+    // 공유하는 칸이 바뀌었으면 새 판 번호 (plugin/sync.js)
+    if (this.sync) this.meta = this.sync.stamp(data).meta;
+    try {
+      await this.saveData(data);
+      this.diskStamp = await this.statData();
+    } catch (e) {
+      console.error('[Vault Pet] save', e);
+    }
+  }
+
+  // 마지막으로 읽거나 쓴 뒤 data.json 이 밖에서 바뀌었나
+  async diskChanged() {
+    const s = await this.statData();
+    return !!s && s !== this.diskStamp;
   }
 }
 
@@ -7929,7 +8113,7 @@ async function backupDaily(adapter, dir, raw, lastDay, today) {
   return true;
 }
 
-module.exports = { loadSafe, backupDaily, BACKUP };
+module.exports = { loadSafe, backupDaily, readJson, BACKUP };
 
 };
 
@@ -8201,6 +8385,373 @@ class Store {
 const DEFAULT_PET_NAME = { en: 'Kit', zh: '奇奇' };
 
 module.exports = { Store, DEFAULT_SETTINGS, DEFAULT_PET_NAME };
+
+};
+
+__defs["plugin/sync"] = function (module, exports, require) {
+'use strict';
+/*
+ * 여러 기기 합치기 (1.5.1).
+ *
+ * 옵시디언 Sync · iCloud 로 두 기기가 한 볼트를 쓰면 data.json 하나를 서로 덮어썼다. 나중에 저장한 쪽이 이겨서
+ * 다른 기기에서 산 물건 · 딴 업적 · 코인이 사라졌다. 이제 밖에서 data.json 이 바뀌면(onExternalSettingsChange)
+ * 다시 읽어 지금 것과 합친다.
+ *
+ * 공통 조상: 기기마다 이름(dev)이 있고, 저장할 때 meta.sync[dev] 에 판 번호(rev, 저장 시각)를 적는다.
+ * 남이 쓴 파일의 meta.sync[나] 는 '그 기기가 마지막으로 받은 내 판'이다. 그 판을 기억하고 있으면(history)
+ * 그게 공통 조상이고, 3방향으로 합친다.
+ *   - 내가 안 바꾼 칸은 상대 값, 상대가 안 바꾼 칸은 내 값 (한 기기를 쉬게 두고 다른 기기를 쓰면 그대로 넘어온다)
+ *   - 둘 다 바꾼 칸만 칸마다 정한 규칙: 횟수 · 코인은 양쪽에서 늘어난 만큼 더하고, 물건 · 업적은 합집합 …
+ * 조상을 모르면(상대가 오래 오프라인, 1.5.0 이하 기기) 잃지 않는 쪽으로 합친다.
+ *   - 횟수 · 코인은 큰 쪽, 물건 · 업적은 합집합, 설정은 내 것
+ *   - 1.5.0 이하 기기의 사용량은 섞지 않는다 (그 기기는 이 기기의 글을 자기 것으로 다시 세어 두었다)
+ *
+ * 기기마다 따로인 것(DEVICE)은 합치지 않는다: 고양이 자리 · 하우스 자리 · 저전력 · 방해 금지 · 집중 시간 · 말풍선 기억 …
+ * 밥 게이지 · 마지막 끼니(TIMED)는 시각으로 고르고, 판 번호를 올리지 않는다 (가만있어도 매분 바뀐다).
+ */
+
+const DEVICE_SETTINGS = ['position', 'showPet', 'houseInSidebar', 'lowPower'];
+const DEVICE_STATE = [
+  'quietUntil', 'focus', 'focusQuiet', 'lastVersion', 'whatsNew', 'ui', 'temper', 'news', 'lineMemory', 'brainDaily', 'eventLog',
+  'craving', 'pending', 'replies', 'recapNudged', 'refundNote', 'toyOffers', 'guests', 'lastFood', 'lastMeal', 'eventLoot',
+];
+const TIMED_STATE = ['gauge', 'life'];
+const HISTORY_MAX = 12;
+const FOOD_DROP_PER_HOUR = 25; // core/gauge.js 와 같다
+const HOUR = 3600_000;
+
+/* ── 비교 · 복사 ── */
+
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+// 같은 값인가 (객체는 키 순서와 상관없이)
+function same(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => same(x, b[i]));
+  const ka = Object.keys(a).filter((k) => a[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => b[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => same(a[k], b[k]));
+}
+
+const omit = (o, keys) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => !keys.includes(k)));
+
+// 판 번호를 정할 때 보는 몫: 기기마다 따로인 것 · 시각으로 고르는 것을 뺀 settings · state · usage
+function sharedOf(raw) {
+  const r = raw || {};
+  return { settings: omit(r.settings, DEVICE_SETTINGS), state: omit(r.state, [...DEVICE_STATE, ...TIMED_STATE]), usage: r.usage || {} };
+}
+
+// 합친 뒤 메모리에 다시 넣을 몫 (판 번호 몫 + 밥 게이지 · 끼니)
+function liveOf(raw) {
+  const s = sharedOf(raw);
+  for (const k of TIMED_STATE) s.state[k] = ((raw || {}).state || {})[k];
+  return s;
+}
+
+function vvOf(raw) {
+  const s = raw && raw.meta && raw.meta.sync;
+  return isObj(s) ? s : {};
+}
+
+/* ── 칸마다 규칙 ──
+ * 둘 다 바꿨을 때(exact) 또는 조상을 모를 때(!exact) 쓰는 규칙. b = 조상 (모르면 undefined)
+ */
+
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const SUM = { t: 'sum' };
+const MAX = { t: 'max' };
+const MIN_NZ = { t: 'minNz' };
+const OR = { t: 'or' };
+const LOCAL = { t: 'local' };
+const DEVICE = { t: 'device' };
+const mapOf = (each) => ({ t: 'map', each });
+const objOf = (fields, rest = LOCAL) => ({ t: 'obj', fields, rest });
+const unionOf = (key, limit) => ({ t: 'union', key, limit });
+const custom = (fn) => ({ t: 'fn', fn });
+
+// 노트 기록 [최고 글자, 최고 링크, mtime, 새 노트로 셌나, ...기능 최고값, 최고 단어] — 칸마다 큰 쪽
+const FILE_REC = custom((b, l, r) => {
+  if (!Array.isArray(l)) return r;
+  if (!Array.isArray(r)) return l;
+  const out = [];
+  for (let i = 0; i < Math.max(l.length, r.length); i++) {
+    if (l[i] === undefined) out[i] = r[i];
+    else if (r[i] === undefined) out[i] = l[i];
+    else out[i] = Math.max(num(l[i]), num(r[i]));
+  }
+  return out;
+});
+
+const BUCKET = objOf({ c: SUM, w: SUM, l: SUM, n: SUM, s: SUM, v: SUM, e: SUM, t: mapOf(SUM) }, SUM);
+
+const USAGE = objOf({
+  files: mapOf(FILE_REC),
+  gone: mapOf(FILE_REC),
+  projects: mapOf(objOf({ buckets: mapOf(BUCKET), last: MAX })),
+  lastEdit: MAX,
+  lastBurst: MAX,
+  firstAt: MIN_NZ,
+});
+
+// 숫자는 모두 더하는 표 (purchaseStats: 평생 구매 기록. v 는 형식 번호라 큰 쪽)
+const DEEP_SUM = custom((b, l, r, ctx) => deepNum(b, l, r, ctx, 'sum'));
+const DEEP_MAX = custom((b, l, r, ctx) => deepNum(b, l, r, ctx, 'max'));
+function deepNum(b, l, r, ctx, how) {
+  if (l === undefined) return r;
+  if (r === undefined) return l;
+  if (typeof l === 'number' && typeof r === 'number') return how === 'sum' ? rule(SUM, b, l, r, ctx) : Math.max(l, r);
+  if (isObj(l) && isObj(r)) {
+    const out = {};
+    for (const k of new Set([...Object.keys(l), ...Object.keys(r)])) out[k] = deepNum(isObj(b) ? b[k] : undefined, l[k], r[k], ctx, how);
+    return out;
+  }
+  return l;
+}
+
+// 밥 게이지: 둘 다 지금 시각까지 줄여 보고 많은 쪽 (어느 기기에서 먹였든 남는다).
+// 상대 쪽이 뚜렷이 많을 때만 바꾼다 — 시각만 다른 같은 게이지로 두 기기가 서로 다시 쓰지 않게
+function foodNow(g, now) {
+  if (!isObj(g) || typeof g.food !== 'number') return -1;
+  const openH = Math.max(0, Math.min(24 * HOUR, now - Math.max(g.at || now, g.foodLockUntil || 0))) / HOUR;
+  return Math.max(0, Math.min(100, g.food - FOOD_DROP_PER_HOUR * openH));
+}
+const GAUGE = custom((b, l, r, ctx) => {
+  const fl = foodNow(l, ctx.now);
+  const fr = foodNow(r, ctx.now);
+  if (fl < 0) return r;
+  if (fr < 0) return l;
+  const lock = Math.max(l.foodLockUntil || 0, r.foodLockUntil || 0);
+  if (fr <= fl + 0.5 && lock === (l.foodLockUntil || 0)) return l;
+  return { food: Math.max(fl, fr), at: ctx.now, foodLockUntil: lock };
+});
+// 마지막 끼니: 늦게 먹은 쪽
+const LIFE = custom((b, l, r) => (!isObj(l) ? r : !isObj(r) ? l : num(r.fedAt) > num(l.fedAt) ? r : l));
+// 오늘 퀘스트: 같은 묶음이면 받은 보상은 합집합, 다른 묶음이면 늦게 뽑은 쪽
+const QUESTS = custom((b, l, r) => {
+  if (!isObj(l)) return r;
+  if (!isObj(r)) return l;
+  if (l.id !== r.id) return num(r.at) > num(l.at) ? r : l;
+  return { ...l, claimed: [...new Set([...(l.claimed || []), ...(r.claimed || [])])] };
+});
+// [날짜, 그날 횟수] 짝: 늦은 날 쪽, 같은 날이면 횟수를 합친다
+const dayPair = (dayKey, countKey) => (b, l, r, ctx) => {
+  const dl = l[dayKey] || '';
+  const dr = r[dayKey] || '';
+  if (!dl && !dr) return {};
+  if (dl !== dr) return dr > dl ? { [dayKey]: r[dayKey], [countKey]: r[countKey] } : { [dayKey]: l[dayKey], [countKey]: l[countKey] };
+  const bb = b && b[dayKey] === dl ? b[countKey] : 0;
+  return { [dayKey]: l[dayKey], [countKey]: rule(SUM, bb, l[countKey], r[countKey], ctx) };
+};
+
+const byJson = (x) => JSON.stringify(x);
+const pad = (n) => String(n).padStart(2, '0');
+const dayOfMs = (ms) => {
+  const d = new Date(num(ms));
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+// 보너스 XP 한 줄이 '같은 보상'인가. 두 기기가 따로 같은 보상을 줬으면 한 줄만 남긴다
+//  업적은 평생 한 번, 출석 · 하루 목표 · 퀘스트 다 깨기는 하루 한 번, 퀘스트는 그날 그 퀘스트 한 번.
+//  집중 시간은 하루에 여러 번이고 기기마다 따로라 줄마다 다르다
+function bonusKey(x) {
+  const w = (x && x.why) || {};
+  const day = dayOfMs(x && x.at);
+  switch (w.k) {
+    case 'bonus.ach':
+      return `ach|${JSON.stringify(w.v)}`;
+    case 'bonus.goalW':
+    case 'bonus.goalC':
+      return `goal|${day}`;
+    case 'bonus.attend':
+    case 'bonus.allclear':
+      return `${w.k}|${day}`;
+    case 'bonus.quest':
+      return `quest|${JSON.stringify(w.v)}|${day}`;
+    default:
+      return byJson(x);
+  }
+}
+const STATE = objOf({
+  // 코인 · 별 · 횟수: 양쪽에서 늘어난 만큼
+  walletSpent: SUM, walletBonus: SUM, starsSpent: SUM, questsDone: SUM, pokes: SUM, mealsTaken: SUM, restsTaken: SUM,
+  pantry: mapOf(SUM), treasures: mapOf(SUM), cnt: mapOf(SUM),
+  focusStats: objOf({ n: SUM, min: SUM, last: MAX }),
+  purchaseStats: objOf({ v: MAX }, DEEP_SUM),
+  friends: objOf({ list: mapOf(objOf({ pts: SUM, visits: SUM, lastAt: MAX })), visit: DEVICE, nextAt: DEVICE, callReadyAt: DEVICE }),
+  // 한 번 오르면 안 내려가는 것
+  lastLevel: MAX, lastStage: MAX, stageScheme: MAX, starsPaid: MAX, maxStreakMin: MAX, attendDay: MAX, mealDay: MAX, restDay: MAX, earlyDay: MAX,
+  goalLog: mapOf(MAX), toyRecords: DEEP_MAX,
+  startedAt: MIN_NZ,
+  greeted: OR, onboarded: OR, initialized: OR, bubbleSplit: OR, keyFix1004: OR, keyFix1009: OR,
+  // 모으는 것: 합집합
+  items: unionOf(String),
+  treasureSeen: unionOf(String),
+  bonus: unionOf(bonusKey),
+  purchases: unionOf((p) => `${p.at}|${p.key}|${p.price}`, 300),
+  starLog: unionOf((p) => `${p.at}|${p.key}`, 200),
+  workshopMade: unionOf((p) => `${p.at}|${p.key}`),
+  achievements: mapOf({ t: 'min' }),
+  rewarded: mapOf(OR), achRetro: mapOf(OR), achNoCoins: mapOf(OR), streakGifts: mapOf(OR),
+  questSet: QUESTS,
+  gauge: GAUGE,
+  life: LIFE,
+  ...Object.fromEntries(DEVICE_STATE.map((k) => [k, DEVICE])),
+});
+const SETTINGS = objOf(Object.fromEntries(DEVICE_SETTINGS.map((k) => [k, DEVICE])));
+// 날짜 · 횟수 짝은 STATE 를 다 합친 다음에 맞춘다
+const PAIRS = [dayPair('pokesDay', 'pokesToday')];
+
+// 값을 고르는 칸(설정 · 기타)은 3방향으로만 판단할 수 있다
+const PICKS = new Set(['local']);
+
+function rule(spec, b, l, r, ctx) {
+  switch (spec.t) {
+    case 'device':
+      return l;
+    case 'local':
+      return l !== undefined ? l : r;
+    case 'sum': {
+      if (l === undefined) return r;
+      if (r === undefined) return l;
+      if (typeof l !== 'number' || typeof r !== 'number') return l;
+      return ctx.exact ? Math.max(0, l + r - num(b)) : Math.max(l, r);
+    }
+    case 'max':
+      if (l === undefined || l === null) return r;
+      if (r === undefined || r === null) return l;
+      return r > l ? r : l;
+    case 'min':
+      if (l === undefined || l === null) return r;
+      if (r === undefined || r === null) return l;
+      return r < l ? r : l;
+    case 'minNz':
+      if (!l) return r;
+      if (!r) return l;
+      return Math.min(l, r);
+    case 'or':
+      return l === undefined ? r : r === undefined ? l : !!(l || r);
+    case 'union': {
+      if (!Array.isArray(l)) return r;
+      if (!Array.isArray(r)) return l;
+      const seen = new Set(l.map(spec.key));
+      let out = [...l, ...r.filter((x) => !seen.has(spec.key(x)))];
+      if (out.some((x) => isObj(x) && typeof x.at === 'number')) out = out.slice().sort((a, c) => num(a && a.at) - num(c && c.at));
+      return spec.limit ? out.slice(-spec.limit) : out;
+    }
+    case 'fn':
+      return spec.fn(b, l, r, ctx);
+    case 'map':
+    case 'obj': {
+      if (!isObj(l)) return r;
+      if (!isObj(r)) return l;
+      const out = {};
+      const keys = new Set([...Object.keys(l), ...Object.keys(r)]);
+      if (ctx.exact && isObj(b)) for (const k of Object.keys(b)) keys.add(k);
+      for (const k of keys) {
+        const sub = spec.t === 'map' ? spec.each : spec.fields[k] || spec.rest;
+        const v = merge(sub, isObj(b) ? b[k] : undefined, l[k], r[k], ctx);
+        if (v !== undefined) out[k] = v;
+      }
+      return out;
+    }
+    default:
+      return l;
+  }
+}
+
+// 한 칸 합치기. 조상을 알면(exact) 한쪽만 바꾼 칸은 바뀐 쪽을, 모르면 규칙대로 (고르는 칸은 내 것)
+function merge(spec, b, l, r, ctx) {
+  if (spec.t === 'device') return l;
+  if (same(l, r)) return l;
+  // 칸이 여럿인 묶음은 통째로 고르지 않는다 (안에 기기마다 따로인 칸이 있을 수 있다)
+  if (spec.t === 'obj') return rule(spec, b, l, r, ctx);
+  if (ctx.exact) {
+    if (same(l, b)) return r;
+    if (same(r, b)) return l;
+  } else if (PICKS.has(spec.t)) return l !== undefined ? l : r;
+  return rule(spec, b, l, r, ctx);
+}
+
+/*
+ * data.json 둘을 합친다. base = 공통 조상의 sharedOf (모르면 null). 넣은 값은 건드리지 않는다
+ *  opts.legacy: 상대가 1.5.0 이하 (meta.sync 가 없다) → 사용량은 내 것만
+ */
+function mergeData(base, local, remote, { now = Date.now(), legacy = false } = {}) {
+  const ctx = { exact: !!base, now };
+  const b = base || {};
+  const settings = merge(SETTINGS, b.settings, local.settings || {}, remote.settings || {}, ctx);
+  const state = merge(STATE, b.state, local.state || {}, remote.state || {}, ctx);
+  for (const pair of PAIRS) Object.assign(state, pair(b.state, local.state || {}, remote.state || {}, ctx));
+  let usage = legacy ? local.usage : merge(USAGE, b.usage, local.usage || {}, remote.usage || {}, ctx);
+  // 어느 쪽에선 아직 살아 있는 노트는 지운 기록(gone)에서 뺀다
+  if (usage && isObj(usage.gone) && isObj(usage.files)) {
+    const gone = Object.fromEntries(Object.entries(usage.gone).filter(([k]) => !(k in usage.files)));
+    usage = { ...usage, gone };
+  }
+  const vv = { ...vvOf(local) };
+  for (const [k, v] of Object.entries(vvOf(remote))) if (!(num(vv[k]) >= num(v))) vv[k] = v;
+  return {
+    ...local,
+    version: Math.max(num(local.version), num(remote.version)) || local.version,
+    settings,
+    state,
+    usage,
+    meta: { ...(local.meta || {}), sync: vv },
+  };
+}
+
+/*
+ * 이 기기의 판 장부. 저장할 때 stamp, 밖에서 바뀌면 incoming.
+ *  dev: 이 기기 이름 (볼트마다 기기마다 하나, 동기화되지 않는 곳에 둔다 — plugin/main.js 의 deviceId)
+ *  loaded: 켤 때 읽은 data.json
+ */
+class SyncBook {
+  constructor(dev, loaded) {
+    this.dev = dev;
+    this.history = new Map(); // 판 번호 → 그 판 sharedOf 의 JSON
+    this.rev = num(vvOf(loaded)[dev]);
+    this.last = JSON.stringify(sharedOf(loaded));
+    // 내가 쓴 파일이면 그 판을 기억한다. 남이 쓴 파일이면 다음 저장에 새 판을 연다 (이 내용은 내 어느 판과도 다르다)
+    if (loaded && loaded.meta && loaded.meta.syncBy === dev && this.rev) this.remember(this.rev, this.last);
+    else this.last = null;
+  }
+
+  remember(rev, json) {
+    this.history.set(rev, json);
+    while (this.history.size > HISTORY_MAX) this.history.delete(this.history.keys().next().value);
+  }
+
+  // 저장 직전에 부른다. 판 번호 몫이 바뀌었으면 새 판 번호를 연다. data.meta 를 고친다
+  stamp(data, now = Date.now()) {
+    const json = JSON.stringify(sharedOf(data));
+    if (json !== this.last) {
+      this.rev = Math.max(now, this.rev + 1);
+      this.last = json;
+      this.remember(this.rev, json);
+    }
+    data.meta = { ...(data.meta || {}), sync: { ...vvOf(data), [this.dev]: this.rev }, syncBy: this.dev };
+    return data;
+  }
+
+  /*
+   * 밖에서 바뀐 data.json (remote) 을 지금 것(local) 과 합친다.
+   * 돌려주는 것: { merged, changed, exact, legacy }. changed = 메모리에 다시 넣어야 하는가
+   */
+  incoming(local, remote, now = Date.now()) {
+    const legacy = !isObj(remote.meta && remote.meta.sync);
+    const seen = vvOf(remote)[this.dev];
+    const json = seen ? this.history.get(seen) : undefined;
+    const base = json ? JSON.parse(json) : null;
+    const merged = mergeData(base, local, remote, { now, legacy });
+    const changed = !same(liveOf(merged), liveOf(local));
+    // 합친 내용은 내 어느 판과도 다르다. 다음 저장에 새 판을 연다
+    if (changed) this.last = null;
+    return { merged, changed, exact: !!base, legacy };
+  }
+}
+
+module.exports = { SyncBook, mergeData, sharedOf, same, DEVICE_SETTINGS, DEVICE_STATE, TIMED_STATE };
 
 };
 

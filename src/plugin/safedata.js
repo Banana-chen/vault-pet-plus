@@ -52,4 +52,4 @@ async function backupDaily(adapter, dir, raw, lastDay, today) {
   return true;
 }
 
-module.exports = { loadSafe, backupDaily, BACKUP };
+module.exports = { loadSafe, backupDaily, readJson, BACKUP };

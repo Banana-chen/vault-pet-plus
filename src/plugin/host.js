@@ -240,6 +240,23 @@ class KitHost {
     this.minuteTick();
   }
 
+  // 다른 기기의 data.json 을 합친 뒤 (1.5.1, plugin/sync.js). 따로 들고 있던 값을 다시 읽고 화면에 다시 보낸다.
+  // 레벨은 큰 쪽으로 합쳐져서, 다른 기기에서 이미 축하한 레벨 업을 여기서 또 하지 않는다
+  reloadShared() {
+    const { settings, state, usage } = this;
+    usage.setExcluded(settings.get('excludedProjects'));
+    const g = state.get('gauge');
+    if (this.gauge && g && typeof g.food === 'number') this.gauge.g = { food: g.food, at: g.at || Date.now(), foodLockUntil: g.foodLockUntil || 0 };
+    if (this.brain) this.brain.life = state.get('life') || { hungrySince: 0, fedAt: 0 };
+    this.syncStrings();
+    this.plugin.relabel();
+    this.recomputeGrowth();
+    this.send('pet:config', this.petConfig());
+    this.pushState();
+    this.pushHouse();
+    this.plugin.updateStatus();
+  }
+
   // ---------- 글·성격 ----------
 
   syncStrings() {
