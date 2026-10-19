@@ -35,6 +35,20 @@ const RAW = [
   ['edit_10000', 'write', 'hard', 'chats', (c) => c.all.e || 0, 10000, COIN.hard],
   ['edit_50000', 'write', 'legend', 'chats', (c) => c.all.e || 0, 50000, COIN.legend],
 
+  // ---------- 하루 목표 · 집중 시간 (1.5.0) ----------
+  // 목표 날 수 · 이어서 채운 최고 기록 · 마친 집중 시간 횟수 (host.checkGoal · focusTick 이 gamify 횟수로 올린다)
+  ['goal_1', 'focus', 'easy', 'star', (c) => n(c, 'goal'), 1, { food: { churu: 3 } }],
+  ['goal_10', 'focus', 'normal', 'star', (c) => n(c, 'goal'), 10, COIN.normal],
+  ['goal_50', 'focus', 'hard', 'star', (c) => n(c, 'goal'), 50, COIN.hard],
+  ['goal_200', 'focus', 'legend', 'trophy', (c) => n(c, 'goal'), 200, COIN.legend],
+  ['goalrun_3', 'focus', 'normal', 'fire', (c) => n(c, 'goalStreak'), 3, COIN.normal],
+  ['goalrun_7', 'focus', 'hard', 'fire', (c) => n(c, 'goalStreak'), 7, COIN.hard],
+  ['goalrun_30', 'focus', 'legend', 'fire', (c) => n(c, 'goalStreak'), 30, COIN.legend],
+  ['focus_1', 'focus', 'easy', 'hourglass', (c) => n(c, 'focus'), 1, { food: { milk: 3 } }],
+  ['focus_10', 'focus', 'normal', 'hourglass', (c) => n(c, 'focus'), 10, COIN.normal],
+  ['focus_50', 'focus', 'hard', 'hourglass', (c) => n(c, 'focus'), 50, COIN.hard],
+  ['focus_200', 'focus', 'legend', 'hourglass', (c) => n(c, 'focus'), 200, COIN.legend],
+
   // ---------- 링크 ----------
   ['link_1', 'link', 'easy', 'pin', (c) => c.all.l, 1, { food: { churu: 3 } }],
   ['link_30', 'link', 'easy', 'pin', (c) => c.all.l, 30, { food: { chicken: 2 } }],
@@ -216,7 +230,7 @@ const RAW = [
 // 데스크톱판의 'Claude Code 에서만 깰 수 있는 업적' 표. 옵시디언판에는 그런 업적이 없다
 const CLAUDE_ONLY = new Set();
 
-const CATS = ['write', 'link', 'note', 'session', 'obsidian', 'project', 'token', 'streak', 'rhythm', 'bond', 'collect', 'growth', 'secret'];
+const CATS = ['write', 'focus', 'link', 'note', 'session', 'obsidian', 'project', 'token', 'streak', 'rhythm', 'bond', 'collect', 'growth', 'secret'];
 const TIERS = ['easy', 'normal', 'hard', 'legend'];
 
 const ACHIEVEMENTS = RAW.map(([id, cat, tier, icon, value, goal, reward]) => {

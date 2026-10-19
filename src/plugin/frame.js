@@ -47,6 +47,7 @@ const API = [
   ['onLoading', 'on', 'pet:loading'],
   ['onQuiet', 'on', 'pet:quiet'],
   ['onReset', 'on', 'pet:reset'],
+  ['onFocus', 'on', 'pet:focus'], // 집중 시간 { end, min } | null (1.5.0)
   // 하우스 창
   ['get', 'invoke', 'house:get'],
   ['set', 'invoke', 'house:set'],
@@ -80,6 +81,8 @@ const API = [
   ['onMood', 'on', 'house:mood'],
   ['onTab', 'on', 'house:tab'],
   ['onToast', 'on', 'house:toast'], // 호스트가 보내는 하우스 알림 (별 · 출석 선물 · 리캡 카드)
+  ['focusStart', 'invoke', 'focus:start'], // 집중 시간 시작 (분) (1.5.0)
+  ['focusStop', 'invoke', 'focus:stop'],
 ];
 
 class KitFrame {

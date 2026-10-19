@@ -45,6 +45,7 @@ const { KitHost, STATE_DEFAULTS } = require(path.join(src, 'plugin/host'));
 const I18N = require(path.join(src, 'kit/i18n'));
 globalThis.I18N = I18N;
 require(path.join(src, 'kit/i18n-obsidian'));
+require(path.join(src, 'kit/i18n-goals'));
 require(path.join(src, 'kit/i18n-plus'));
 
 const tests = [];
@@ -62,7 +63,7 @@ test('measure: 글자·링크·옵시디언 기능을 센다', () => {
   assert.strictEqual(m.embed, 1);
   assert.strictEqual(m.callout, 1);
   assert.ok(m.chars > 10);
-  assert.deepStrictEqual(measure(''), { chars: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
+  assert.deepStrictEqual(measure(''), { chars: 0, words: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
 });
 
 test('usage: 처음 본 노트는 기준만 잡고, 늘어난 만큼만 센다 (지웠다 다시 쓰기는 0)', () => {
@@ -816,6 +817,466 @@ test('legacy · 설정: 언어 zh 를 받아들인다', async () => {
   assert.strictEqual(host.T.lang, 'zh');
   await host.onInvoke('house:set', null, { language: 'fr' });
   assert.strictEqual(host.settings.get('language'), 'zh', '모르는 언어는 무시');
+});
+
+/* ── 1.5.0: 단어 · 끝낸 할 일 · 하루 목표 · 집중 시간 ── */
+
+const goalsMod = require(path.join(src, 'core/goals'));
+
+test('measure: 단어를 센다 (중국어 · 일본어 글자는 한 글자 = 한 단어, 할 일 표시 x 는 빼고)', () => {
+  assert.strictEqual(measure("Hello world, it's me — 3 cats").words, 6);
+  assert.strictEqual(measure('今天寫作').words, 4);
+  assert.strictEqual(measure('안녕 친구야 반가워').words, 3);
+  assert.strictEqual(measure('- [x] Buy milk\n- [ ] Call mom').words, 4);
+  assert.strictEqual(measure('See [docs](https://example.com/a-b-c) now').words, 3, 'URL 은 단어가 아니다');
+});
+
+test('usage: 단어도 늘어난 만큼만, 예전(1.4) 기록은 처음 볼 때 기준만 잡는다', () => {
+  const u = new UsageTracker();
+  // 1.4 때 만든 기록: 단어 칸이 없다
+  u.observe('a.md', measure('one two three four five'), new Date(), { baseline: true });
+  u.data.files[Object.keys(u.data.files)[0]].length = 10;
+  u.observe('a.md', measure('one two three four five six'), new Date());
+  assert.strictEqual(u.totals().w, 0, '단어 기준이 없던 노트는 이번엔 기준만');
+  assert.ok(u.totals().c > 0, '글자는 그대로 센다');
+  u.observe('a.md', measure('one two three four five six seven eight'), new Date());
+  assert.strictEqual(u.totals().w, 2);
+  // 새 노트는 0 에서 센다
+  u.observe('b.md', measure('alpha beta gamma'), new Date());
+  assert.strictEqual(u.totals().w, 5);
+  // 붙여넣기 몫은 단어에서도 빠진다
+  u.observe('c.md', measure('pasted words here typed'), new Date(), { skip: { c: 17, l: 0, w: 3 } });
+  assert.strictEqual(u.totals().w, 6);
+  assert.strictEqual(u.today().w, 6);
+  assert.strictEqual(u.daily(1)[0].w, 6);
+});
+
+test('growth · coins: 끝낸 할 일 하나 = 5 XP · 5코인, 체크를 풀었다 다시 해도 한 번', () => {
+  assert.strictEqual(growth.xpOf({ k: 3 }), 15);
+  const { host, usage } = makeHost();
+  const xp0 = host.growth.xp;
+  const coins0 = host.shop.wallet().balance;
+  usage.observe('일기/할 일.md', measure('- [ ] a\n- [ ] b'), new Date(), { baseline: true });
+  usage.observe('일기/할 일.md', measure('- [x] a\n- [x] b'), new Date());
+  usage.observe('일기/할 일.md', measure('- [ ] a\n- [ ] b'), new Date());
+  usage.observe('일기/할 일.md', measure('- [x] a\n- [x] b'), new Date());
+  host.onUsage();
+  assert.strictEqual(usage.totals().k, 2);
+  assert.ok(host.growth.xp >= xp0 + 10, 'XP');
+  assert.strictEqual(host.shop.wallet().balance - coins0, 10, '코인');
+});
+
+test('goal: 오늘 목표를 채우면 한 번만 축하 · 코인 100 · XP 50 · 업적 횟수, 상태 표시줄 줄', () => {
+  const { host, usage, sent, settings } = makeHost({ settings: { language: 'en' } });
+  assert.deepStrictEqual(host.goals.config(), { on: true, unit: 'words', target: 300 }, '영어는 300단어');
+  assert.ok(/0 \/ 300 words/.test(host.goalLine()));
+  const coins0 = host.shop.wallet().balance;
+  usage.observe('일기/draft.md', measure('word '.repeat(150)), new Date());
+  host.onUsage();
+  assert.strictEqual(host.goals.progress().done, false);
+  usage.observe('일기/draft.md', measure('word '.repeat(320)), new Date());
+  host.onUsage();
+  const p = host.goals.progress();
+  assert.strictEqual(p.done, true);
+  assert.strictEqual(p.current, 1);
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal'), '말풍선');
+  const coins1 = host.shop.wallet().balance;
+  assert.ok(coins1 - coins0 >= 100, '목표 코인');
+  assert.ok(host.gamify.st.bonus.some((b) => b.why && b.why.k === 'bonus.goalW' && b.xp === 50));
+  assert.strictEqual(host.gamify.st.cnt.goal, 1);
+  const n = sent.filter(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal').length;
+  usage.observe('일기/draft.md', measure('word '.repeat(400)), new Date());
+  host.onUsage();
+  assert.strictEqual(sent.filter(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal').length, n, '하루 한 번');
+  assert.ok(/reached/.test(host.goalLine()));
+  // 끄면 세지 않는다
+  settings.set({ goal: { on: false, unit: 'words', target: 300 } });
+  assert.strictEqual(host.goals.check(), null);
+});
+
+test('goal: 이어서 채운 날 · 최고 기록, 한국어 기본은 1,000자', () => {
+  const { host, state } = makeHost();
+  assert.deepStrictEqual(host.goals.config(), { on: true, unit: 'chars', target: 1000 });
+  const now = new Date(2026, 9, 19, 12);
+  const d = (n) => goalsMod.GOAL_DEFAULT && require(path.join(src, 'core/usage')).dayOf(new Date(2026, 9, 19 - n));
+  state.set({ goalLog: { [d(1)]: 1000, [d(2)]: 1000, [d(4)]: 1000 } });
+  const s = host.goals.streaks(now);
+  assert.strictEqual(s.current, 2, '오늘 아직이면 어제까지');
+  assert.strictEqual(s.best, 2);
+  assert.strictEqual(s.total, 3);
+});
+
+test('focus: 시작하면 방해 금지 + 머리 위 시간, 끝나면 축하 · 코인 · XP, 방해 금지는 풀린다', () => {
+  const { host, sent, state } = makeHost();
+  const t0 = Date.now();
+  host.focusStart(25);
+  assert.ok(host.isQuiet(), '집중하는 동안 방해 금지');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:focus' && x && x.min === 25));
+  assert.strictEqual(host.focusTick(t0 + 10 * 60_000), null, '아직');
+  const coins0 = host.shop.wallet().balance;
+  const r = host.focusTick(t0 + 25 * 60_000 + 1000);
+  assert.strictEqual(r.min, 25);
+  assert.strictEqual(host.shop.wallet().balance - coins0, 50);
+  assert.ok(!host.isQuiet(), '끝나면 방해 금지도 끝');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'focus' && /25/.test(x.text)), '끝 말풍선은 방해 금지여도 나온다');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:focus' && x === null));
+  assert.strictEqual(host.gamify.st.cnt.focus, 1);
+  assert.deepStrictEqual(host.goals.focusTotal(), { sessions: 1, minutes: 25 });
+  assert.strictEqual(state.get('focus'), null);
+});
+
+test('focus: 그만두면 벌 없이 끝, 원래 켜 둔 방해 금지는 그대로 · 꺼져 있던 동안 끝난 건 상 없이 접는다', () => {
+  const { host } = makeHost();
+  host.setQuiet(180);
+  host.focusStart(15);
+  host.focusStop();
+  assert.ok(host.isQuiet(), '원래 3시간 방해 금지는 남는다');
+  host.setQuiet(0);
+  const t0 = Date.now();
+  host.focusStart(15);
+  const coins0 = host.shop.wallet().balance;
+  const r = host.focusTick(t0 + 15 * 60_000 + goalsMod.FOCUS_STALE + 60_000);
+  assert.ok(r.stale);
+  assert.strictEqual(host.shop.wallet().balance, coins0, '상 없음');
+  assert.ok(!host.isQuiet());
+  // 집중이 켠 방해 금지는 끝 시각이 어긋나도(시계 · 꺼졌다 켜짐) 집중과 함께 끝난다
+  host.focusStart(25);
+  const f = host.state.get('focus');
+  host.state.set({ focus: { ...f, end: Date.now() - 1000 } });
+  host.focusTick();
+  assert.ok(!host.isQuiet(), '방해 금지도 같이 끝');
+});
+
+test('house:set: 목표 · 집중 시간은 아는 모양만', async () => {
+  const { host, settings } = makeHost({ settings: { language: 'en' } });
+  let p = await host.onInvoke('house:set', null, { goal: { on: true, unit: 'words', target: 500 } });
+  assert.deepStrictEqual(p.goal.target, 500);
+  await host.onInvoke('house:set', null, { goal: { unit: 'pages', target: -3, hack: 1 } });
+  assert.deepStrictEqual(settings.get('goal'), { on: true, unit: 'words', target: 300 }, '모르는 단위 · 이상한 값은 기본으로');
+  await host.onInvoke('house:set', null, { goal: { unit: 'chars', target: 10_000_000 } });
+  assert.strictEqual(settings.get('goal').target, 100000, '상한');
+  await host.onInvoke('house:set', null, { goal: 'lots' });
+  assert.strictEqual(settings.get('goal').unit, 'chars', '객체가 아니면 무시');
+  await host.onInvoke('house:set', null, { focusMin: 50 });
+  assert.strictEqual(settings.get('focusMin'), 50);
+  await host.onInvoke('house:set', null, { focusMin: 7 });
+  assert.strictEqual(settings.get('focusMin'), 50, '15 · 25 · 50 만');
+  p = await host.onInvoke('focus:start', null, 15);
+  assert.strictEqual(p.focus.on, true);
+  assert.strictEqual(p.focus.min, 15);
+  p = await host.onInvoke('focus:stop');
+  assert.strictEqual(p.focus.on, false);
+});
+
+test('첫날: 처음 만난 지 2시간 안에는 밥 알림 · 배고프다 조르기를 쉰다', () => {
+  const { host, sent, settings } = makeHost();
+  const now = new Date();
+  const hh = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  settings.set({ lunchTime: hh(now), dinnerEnabled: false });
+  host.brain.activity(Date.now());
+  host.brain.tick();
+  assert.ok(!sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'lunch'), '첫날 2시간은 조용');
+  // 오래된 사용자는 그대로 알린다
+  const old = makeHost({ state: { startedAt: Date.now() - 3 * 86_400_000 } });
+  old.settings.set({ lunchTime: hh(now), dinnerEnabled: false });
+  old.host.brain.activity(Date.now());
+  old.host.brain.tick();
+  assert.ok(old.sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'lunch'), '평소엔 점심 알림');
+});
+
+test('achievements: 목표 · 집중 업적 11개가 있고 묶음 이름이 세 언어 다 있다', () => {
+  const ids = ACHIEVEMENTS.filter((a) => a.cat === 'focus').map((a) => a.id);
+  assert.strictEqual(ids.length, 11);
+  assert.ok(CATS.includes('focus'));
+  for (const lang of ['ko', 'en', 'zh']) {
+    assert.ok(I18N.UI[lang]['ach.cat.focus'], lang);
+    for (const id of ids) assert.ok(I18N.UI[lang][`ach.${id}.name`] && I18N.UI[lang][`ach.${id}.desc`], `${lang} ${id}`);
+  }
+});
+
+/* ── 여러 기기 합치기 (1.5.1, plugin/sync.js) ── */
+
+const { SyncBook, mergeData, sharedOf, same } = require(path.join(src, 'plugin/sync'));
+const SYNC_T0 = new Date(2026, 9, 19, 10).getTime();
+const HOUR_MS = 3600_000;
+const clone = (x) => structuredClone(x);
+function devData() {
+  const u = new UsageTracker();
+  u.observe('일기/a.md', measure('a'.repeat(100)), new Date(SYNC_T0 - HOUR_MS), { baseline: true });
+  return {
+    version: 1,
+    settings: { ...clone(DEFAULT_SETTINGS), petName: 'Kit', position: { x: 100, v: 3 } },
+    state: {
+      ...clone(STATE_DEFAULTS), walletSpent: 1000, walletBonus: 50, items: ['none', 'scarf'], pantry: { churu: 5 }, cnt: { goal: 3 },
+      achievements: { write_1: 111 }, rewarded: { write_1: true }, lastLevel: 10, lastStage: 1,
+      gauge: { food: 50, at: SYNC_T0, foodLockUntil: 0 }, life: { hungrySince: 0, fedAt: SYNC_T0 - HOUR_MS }, purchases: [{ at: 1, key: 'scarf', price: 500 }],
+    },
+    usage: u.data,
+    meta: { scanned: true },
+  };
+}
+// 노트를 쓴다 (기기 하나의 사용량에)
+function write(data, file, chars, at) {
+  const u = new UsageTracker(data.usage);
+  u.observe(file, measure('a'.repeat(chars)), new Date(at));
+  data.usage = u.data;
+}
+
+test('sync: 쉬던 기기는 다른 기기에서 한 것을 그대로 받고, 기기마다 따로인 칸(자리 · 방해 금지)은 그대로', () => {
+  const A = new SyncBook('A', null);
+  const a1 = A.stamp(devData(), SYNC_T0);
+  // B 는 A 의 파일을 받아 이어서 썼다: 물건 · 코인 · 먹이 · 업적 · 글 · 옷
+  const B = new SyncBook('B', clone(a1));
+  const b1 = clone(a1);
+  b1.state.items.push('wizard');
+  b1.state.walletSpent += 500;
+  b1.state.pantry.churu = 7;
+  b1.state.achievements.write_100 = 222;
+  b1.settings.outfit = { head: 'wizard' };
+  b1.settings.position = { x: 900, v: 3 };
+  write(b1, '일기/b.md', 300, SYNC_T0 + 60_000);
+  B.stamp(b1, SYNC_T0 + 90_000);
+  // A 는 그동안 쉬었다 (고양이 자리 · 방해 금지만 이 기기에서 바뀜)
+  const local = clone(a1);
+  local.settings.position = { x: 40, v: 3 };
+  local.state.quietUntil = SYNC_T0 + HOUR_MS;
+  const r = A.incoming(local, b1, SYNC_T0 + 100_000);
+  assert.ok(r.exact, '공통 조상(A 의 판)을 안다');
+  assert.ok(r.changed);
+  assert.ok(same(sharedOf(r.merged), sharedOf(b1)), '공유 칸은 B 와 같다');
+  assert.deepStrictEqual(r.merged.settings.position, { x: 40, v: 3 });
+  assert.strictEqual(r.merged.state.quietUntil, SYNC_T0 + HOUR_MS);
+  assert.strictEqual(new UsageTracker(r.merged.usage).totals().c, 300);
+});
+
+test('sync: 두 기기가 같이 바뀌면 코인 · 먹이 · 횟수 · 글은 양쪽 몫을 더하고, 물건 · 업적은 합집합, 노트 기록은 큰 쪽', () => {
+  const A = new SyncBook('A', null);
+  const a1 = A.stamp(devData(), SYNC_T0);
+  const B = new SyncBook('B', clone(a1));
+  const a2 = clone(a1);
+  a2.state.walletSpent += 100;
+  a2.state.items.push('glasses');
+  a2.state.cnt.goal = 4;
+  write(a2, '일기/a.md', 150, SYNC_T0 + 60_000); // a.md 100 → 150 (+50)
+  A.stamp(a2, SYNC_T0 + 70_000);
+  const b1 = clone(a1);
+  b1.state.walletSpent += 300;
+  b1.state.items.push('wizard');
+  b1.state.cnt.goal = 5;
+  b1.state.pantry.churu = 2; // 먹였다 (5 → 2)
+  b1.state.achievements.goal_1 = 333;
+  write(b1, '일기/b.md', 200, SYNC_T0 + 65_000); // 새 노트 200자
+  B.stamp(b1, SYNC_T0 + 80_000);
+  const r = A.incoming(clone(a2), b1, SYNC_T0 + 90_000);
+  assert.ok(r.exact);
+  const s = r.merged.state;
+  assert.strictEqual(s.walletSpent, 1400, '1000 + 100 + 300');
+  assert.deepStrictEqual(s.items, ['none', 'scarf', 'glasses', 'wizard']);
+  assert.strictEqual(s.cnt.goal, 6, '3 + 1 + 2');
+  assert.strictEqual(s.pantry.churu, 2, 'A 는 안 건드렸으니 B 값');
+  assert.strictEqual(s.achievements.goal_1, 333);
+  const u = new UsageTracker(r.merged.usage);
+  assert.strictEqual(u.totals().c, 250, 'A 50자 + B 200자');
+  assert.strictEqual(u.totals().n, 1);
+  // 노트 기록이 둘 다 남아서, 어느 기기에서 다시 봐도 또 세지 않는다
+  assert.strictEqual(u.observe('일기/a.md', measure('a'.repeat(150)), new Date()).dc, 0);
+  assert.strictEqual(u.observe('일기/b.md', measure('a'.repeat(200)), new Date()).dc, 0);
+});
+
+test('sync: 공통 조상을 모르면(오래 오프라인 · 1.5.0 기기) 잃지 않는 쪽 — 횟수는 큰 쪽, 물건은 합집합, 설정은 내 것', () => {
+  const local = devData();
+  local.state.walletSpent = 1100;
+  local.state.items.push('glasses');
+  write(local, '일기/a.md', 150, SYNC_T0 + 60_000);
+  // 1.5.0 기기: meta.sync 가 없다 → 사용량은 섞지 않는다 (그 기기는 이 기기의 글을 자기 것으로 다시 세었다)
+  const old = devData();
+  old.state.walletSpent = 1200;
+  old.state.items.push('wizard');
+  old.settings.petName = 'Mochi';
+  write(old, '일기/a.md', 150, SYNC_T0 + 3 * HOUR_MS);
+  const A = new SyncBook('A', null);
+  A.stamp(clone(local), SYNC_T0);
+  const r = A.incoming(clone(local), old);
+  assert.ok(!r.exact && r.legacy);
+  assert.strictEqual(r.merged.state.walletSpent, 1200);
+  assert.deepStrictEqual(r.merged.state.items, ['none', 'scarf', 'glasses', 'wizard']);
+  assert.strictEqual(r.merged.settings.petName, 'Kit');
+  assert.ok(same(r.merged.usage, local.usage), '1.5.0 기기의 사용량은 안 섞는다');
+  // 1.5.1 기기인데 내 판을 모른다 → 사용량은 시간대마다 큰 쪽 (더하면 같은 글을 두 번 셀 수 있다)
+  const far = devData();
+  write(far, '일기/c.md', 70, SYNC_T0 + 120_000); // 같은 10시대에 70자
+  write(far, '일기/b.md', 200, SYNC_T0 + 3 * HOUR_MS); // 13시대에 200자
+  far.meta = { sync: { A: 12345, C: 1 }, syncBy: 'C' };
+  const r2 = A.incoming(clone(local), far);
+  assert.ok(!r2.exact && !r2.legacy);
+  assert.strictEqual(new UsageTracker(r2.merged.usage).totals().c, 270, '10시 max(50, 70) + 13시 200');
+});
+
+test('sync: 두 기기가 따로 같은 보상(업적 · 하루 목표)을 줬으면 보너스 XP 는 한 줄만, 집중 시간은 둘 다', () => {
+  const l = devData();
+  const r = devData();
+  const ach = (at) => ({ at, xp: 50, why: { k: 'bonus.ach', v: { name: 'First letter' } } });
+  const goal = (at) => ({ at, xp: 50, why: { k: 'bonus.goalW', v: { n: '300' } } });
+  const focus = (at) => ({ at, xp: 25, why: { k: 'bonus.focus', v: { m: 25 } } });
+  l.state.bonus = [ach(SYNC_T0), goal(SYNC_T0 + 1000), focus(SYNC_T0 + 2000)];
+  r.state.bonus = [ach(SYNC_T0 + 500), goal(SYNC_T0 + 1500), focus(SYNC_T0 + 3000), goal(SYNC_T0 + 24 * HOUR_MS)];
+  const m = mergeData(null, l, { ...r, meta: { sync: { B: 1 } } }, { now: SYNC_T0 });
+  const kinds = m.state.bonus.map((x) => x.why.k);
+  assert.strictEqual(kinds.filter((k) => k === 'bonus.ach').length, 1);
+  assert.strictEqual(kinds.filter((k) => k === 'bonus.goalW').length, 2, '다른 날 목표는 따로');
+  assert.strictEqual(kinds.filter((k) => k === 'bonus.focus').length, 2);
+});
+
+test('sync: 판 번호는 공유 칸이 바뀔 때만 오르고, 내 파일이 다시 와도(메아리) 아무것도 안 바뀐다', () => {
+  const A = new SyncBook('A', null);
+  const d = devData();
+  A.stamp(d, 1000);
+  assert.strictEqual(d.meta.sync.A, 1000);
+  assert.strictEqual(d.meta.syncBy, 'A');
+  A.stamp(d, 2000);
+  d.settings.position = { x: 5, v: 3 };
+  d.state.quietUntil = 99;
+  d.state.gauge = { food: 10, at: 3000, foodLockUntil: 0 };
+  A.stamp(d, 3000);
+  assert.strictEqual(d.meta.sync.A, 1000, '자리 · 방해 금지 · 밥 게이지로는 안 오른다');
+  d.state.items.push('x');
+  A.stamp(d, 4000);
+  assert.strictEqual(d.meta.sync.A, 4000);
+  assert.strictEqual(A.incoming(clone(d), clone(d)).changed, false);
+  // 켤 때: 내가 쓴 파일이면 그 판을 기억하고, 남이 쓴 파일이면 내용이 같아도 다음 저장에 새 판
+  const mine = new SyncBook('A', clone(d));
+  assert.strictEqual(mine.stamp(clone(d), 5000).meta.sync.A, 4000);
+  const theirs = clone(d);
+  theirs.meta.syncBy = 'B';
+  assert.strictEqual(new SyncBook('A', theirs).stamp(clone(d), 6000).meta.sync.A, 6000);
+});
+
+test('sync: 밥 게이지는 지금 시각까지 줄여 많은 쪽, 마지막 끼니는 늦은 쪽, 하루 횟수는 늦은 날 쪽', () => {
+  const l = devData();
+  const r = devData();
+  l.state.gauge = { food: 40, at: SYNC_T0, foodLockUntil: 0 };
+  r.state.gauge = { food: 90, at: SYNC_T0 - HOUR_MS, foodLockUntil: 0 }; // 한 시간 전에 먹였다 → 지금 65
+  l.state.life = { hungrySince: 0, fedAt: SYNC_T0 - 3 * HOUR_MS };
+  r.state.life = { hungrySince: 0, fedAt: SYNC_T0 - HOUR_MS };
+  Object.assign(l.state, { pokesDay: '2026-10-18', pokesToday: 9 });
+  Object.assign(r.state, { pokesDay: '2026-10-19', pokesToday: 2 });
+  const m = mergeData(null, l, { ...r, meta: { sync: { B: 1 } } }, { now: SYNC_T0 });
+  assert.strictEqual(m.state.gauge.food, 65);
+  assert.strictEqual(m.state.life.fedAt, SYNC_T0 - HOUR_MS);
+  assert.strictEqual(m.state.pokesDay, '2026-10-19');
+  assert.strictEqual(m.state.pokesToday, 2);
+});
+
+test('plugin: 다른 기기의 data.json 을 합치면 지갑 · 성장 · 밥 게이지가 바로 바뀌고, 이미 축하한 레벨 업은 다시 안 한다', async () => {
+  const KitCommitPlugin = require(path.join(src, 'plugin/main'));
+  // 두 시간 전에 만난 고양이 (정각 직후에 돌려도 30초 전 글이 '만나기 전'이 되지 않게)
+  const { host, settings, state, usage, sent } = makeHost({ state: { startedAt: Date.now() - 2 * HOUR_MS } });
+  const P = Object.create(KitCommitPlugin.prototype);
+  Object.assign(P, { settings, state, usage, host, meta: { scanned: true }, started: true, manifest: { dir: 'p' }, saved: 0 });
+  P.saveSoon = () => P.saved++;
+  P.sync = new SyncBook('A', null);
+  const mine = P.snapshot();
+  P.sync.stamp(mine, Date.now() - 60_000);
+  P.meta = mine.meta;
+  // B: A 의 파일을 받아 3만 자를 쓰고, 마법사 모자를 사고, 밥을 먹였다. 레벨 업 축하는 B 에서 이미 했다
+  const b = clone(mine);
+  write(b, '일기/b.md', 30000, Date.now() - 30_000);
+  b.state.items = [...(b.state.items || []), 'wizard'];
+  b.state.walletSpent = (b.state.walletSpent || 0) + 500;
+  b.state.gauge = { food: 95, at: Date.now(), foodLockUntil: 0 };
+  b.state.lastLevel = 80;
+  b.state.lastStage = 99;
+  b.meta = { sync: { ...mine.meta.sync, B: Date.now() }, syncBy: 'B' };
+  P.app = { vault: { adapter: fakeAdapter({ 'p/data.json': JSON.stringify(b) }) } };
+  const before = { spent: host.shop.wallet().spent, xp: host.growth.xp };
+  sent.length = 0;
+  await P.onExternalSettingsChange();
+  assert.ok(state.get('items').includes('wizard'));
+  assert.strictEqual(host.shop.wallet().spent, before.spent + 500);
+  assert.ok(host.growth.xp >= before.xp + 3000, '3만 자 = 3,000 XP');
+  assert.ok(host.gauge.get().food >= 94);
+  assert.ok(sent.some(([ch]) => ch === 'pet:config'));
+  assert.ok(!sent.some(([ch, x]) => ch === 'pet:bubble' && x && x.kind === 'grow'), '레벨 업 축하를 다시 안 한다');
+  assert.strictEqual(P.saved, 1);
+  assert.ok('p/data.premerge.json' in P.app.vault.adapter.files, '합치기 전 자료를 남긴다');
+  // 내가 저장한 파일이 다시 오면(메아리) 아무것도 안 한다
+  const echo = P.snapshot();
+  P.sync.stamp(echo);
+  P.meta = echo.meta;
+  P.app.vault.adapter.files['p/data.json'] = JSON.stringify(echo);
+  await P.onExternalSettingsChange();
+  assert.strictEqual(P.saved, 1);
+});
+
+test('plugin: 다른 기기의 data.json 을 아직 못 합쳤으면 저장이 덮어쓰지 않고 먼저 합친다', async () => {
+  const KitCommitPlugin = require(path.join(src, 'plugin/main'));
+  const hadWindow = 'window' in globalThis;
+  globalThis.window = globalThis;
+  try {
+    const { host, settings, state, usage } = makeHost();
+    const files = {};
+    const ver = {};
+    const adapter = {
+      files,
+      exists: async (f) => f in files,
+      read: async (f) => files[f],
+      write: async (f, t) => {
+        files[f] = t;
+        ver[f] = (ver[f] || 0) + 1;
+      },
+      stat: async (f) => (f in files ? { mtime: ver[f], size: files[f].length } : null),
+    };
+    const P = Object.create(KitCommitPlugin.prototype);
+    Object.assign(P, { settings, state, usage, host, meta: { scanned: true }, started: true, manifest: { dir: 'p' }, app: { vault: { adapter } } });
+    P.saveSoon = () => {};
+    P.saveData = (d) => adapter.write('p/data.json', JSON.stringify(d));
+    P.sync = new SyncBook('A', null);
+    await P.saveNow();
+    // 다른 기기가 물건을 사고 data.json 을 썼다. 이 기기에는 아직 소식(onExternalSettingsChange)이 안 왔다
+    const b = JSON.parse(files['p/data.json']);
+    b.state.items = [...(b.state.items || []), 'wizard'];
+    b.meta = { ...b.meta, sync: { ...b.meta.sync, B: Date.now() }, syncBy: 'B' };
+    await adapter.write('p/data.json', JSON.stringify(b));
+    await P.saveNow();
+    const disk = JSON.parse(files['p/data.json']);
+    assert.ok(disk.state.items.includes('wizard'), '저장하기 전에 합쳤다');
+    assert.strictEqual(disk.meta.syncBy, 'A');
+    assert.ok(disk.meta.sync.B, '상대 판도 적었다');
+    // 켜는 중(볼트 읽는 중)이면 합칠 수 없으니 저장을 미룬다
+    await adapter.write('p/data.json', JSON.stringify({ ...b, state: { ...b.state, items: ['none', 'crown'] } }));
+    host.loading = true;
+    let again = 0;
+    P.saveSoon = () => again++;
+    await P.saveNow();
+    assert.strictEqual(again, 1);
+    assert.ok(JSON.parse(files['p/data.json']).state.items.includes('crown'), '덮어쓰지 않았다');
+    host.loading = false;
+  } finally {
+    if (!hadWindow) delete globalThis.window;
+  }
+});
+
+test('plugin: 이 기기에서 쓰지 않은 노트 변화는 30초 기다렸다 세고, 그 사이 다른 기기 기록이 오면 다시 안 센다', () => {
+  const KitCommitPlugin = require(path.join(src, 'plugin/main'));
+  const self = { typed: new Map(), foreign: new Map() };
+  const wait = (p, t) => KitCommitPlugin.prototype.foreignWait.call(self, p, t);
+  const t0 = 1_000_000;
+  assert.strictEqual(wait('a.md', t0), 30_000);
+  assert.strictEqual(wait('a.md', t0 + 10_000), 20_000);
+  assert.strictEqual(wait('a.md', t0 + 30_000), 0);
+  assert.strictEqual(self.foreign.size, 0);
+  self.typed.set('b.md', t0);
+  assert.strictEqual(wait('b.md', t0 + 1000), 0, '이 기기 편집기에서 쓴 노트는 바로');
+  assert.strictEqual(wait('b.md', t0 + 3 * 60_000), 30_000, '오래전에 손댄 노트면 다시 기다린다');
+  // 기다리는 동안 다른 기기의 data.json 이 와서 합쳐졌다 → 그 기기가 센 300자는 여기서 0
+  const mine = { settings: {}, state: {}, usage: new UsageTracker().data };
+  new UsageTracker(mine.usage).observe('일기/a.md', measure('a'.repeat(100)), new Date(), { baseline: true });
+  const other = clone(mine);
+  write(other, '일기/a.md', 400, Date.now());
+  const merged = mergeData(null, mine, { ...other, meta: { sync: { B: 1 } } });
+  const u = new UsageTracker(merged.usage);
+  assert.strictEqual(u.observe('일기/a.md', measure('a'.repeat(400)), new Date(), { cap: 3000 }).dc, 0);
+  assert.strictEqual(u.totals().c, 300, '다른 기기가 센 300자를 한 번만');
 });
 
 (async () => {

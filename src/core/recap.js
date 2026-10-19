@@ -2,7 +2,7 @@
 // 자랑 카드(kit/house.js 의 drawCard)가 이걸로 칸을 채운다. 어떤 칸을 넣을지는 사용자가 고른다 (settings.cardPrefs).
 // 플러그인의 사용량 기록(폴더 × 시간 버킷)만 쓴다. 노트 내용은 원래 없다. 폴더는 개수와 가장 많이 쓴 폴더 이름(지금 볼트 이름으로 맞춘 것)만 낸다.
 // 옵시디언 없이 도는 순수 JS 라 tests/run.js 가 직접 돌린다
-const { coinsForDay } = require('./shop');
+const { coinsForDay, TASK_COINS } = require('./shop');
 const { xpOf, levelOf, MAX_LEVEL } = require('./growth');
 const { hourKeyToMs } = require('./usage');
 
@@ -49,12 +49,12 @@ function recap(usage, kind = 'month', opts = {}) {
   const inRange = (ms) => ms >= P.from && ms < P.to;
   const fromStart = (ms) => !startedAt || ms >= startedAt - 3_600_000;
 
-  const sum = { c: 0, l: 0, n: 0, s: 0 };
+  const sum = { c: 0, l: 0, n: 0, s: 0, k: 0 };
   const hours = new Array(24).fill(0);
   const daily = {}; // 'YYYY-MM-DD' → { c, e }
   // 경험치 · 레벨 변화: 처음 만난 뒤 기록만 (성장과 같은 기준)
-  const before = { c: 0, l: 0, n: 0, s: 0 };
-  const during = { c: 0, l: 0, n: 0, s: 0 };
+  const before = { c: 0, l: 0, n: 0, s: 0, k: 0 };
+  const during = { c: 0, l: 0, n: 0, s: 0, k: 0 };
   const byFolder = {};
   for (const [id, p] of Object.entries((usage.data && usage.data.projects) || {})) {
     if (usage.excluded && usage.excluded.has(id)) continue;
@@ -65,6 +65,7 @@ function recap(usage, kind = 'month', opts = {}) {
         o.l += b.l || 0;
         o.n += b.n || 0;
         o.s += b.s || 0;
+        o.k += (b.t && b.t.done) || 0; // 끝낸 할 일 (1.5.0 부터 경험치·코인)
       };
       if (startedAt && fromStart(t) && t < P.from) add(before);
       if (!inRange(t)) continue;
@@ -72,9 +73,10 @@ function recap(usage, kind = 'month', opts = {}) {
       add(sum);
       hours[Number(key.slice(11, 13))] += b.e || 0;
       const day = key.slice(0, 10);
-      const row = (daily[day] ||= { c: 0, e: 0 });
+      const row = (daily[day] ||= { c: 0, e: 0, k: 0 });
       row.c += b.c || 0;
       row.e += b.e || 0;
+      row.k += (b.t && b.t.done) || 0;
       if (b.e || b.c) byFolder[id] = (byFolder[id] || 0) + (b.c || 0) + 1;
     }
   }
@@ -86,7 +88,7 @@ function recap(usage, kind = 'month', opts = {}) {
   const favId = Object.entries(byFolder).sort((a, b) => b[1] - a[1])[0];
   // 코인: 처음 만난 날부터, 하루씩 계단식 (shop.coinsSince 와 같은 셈)
   const startDay = startedAt ? dayKey(new Date(startedAt)) : '';
-  const coins = Object.entries(daily).reduce((a, [k, r]) => a + (k >= startDay ? coinsForDay(r.c) : 0), 0);
+  const coins = Object.entries(daily).reduce((a, [k, r]) => a + (k >= startDay ? coinsForDay(r.c) + (r.k || 0) * TASK_COINS : 0), 0);
   const bonus = opts.bonus || [];
   const bonusBefore = bonus.filter((b) => b.at >= startedAt && b.at < P.from).reduce((a, b) => a + (b.xp || 0), 0);
   const bonusDuring = bonus.filter((b) => b.at >= startedAt && inRange(b.at)).reduce((a, b) => a + (b.xp || 0), 0);

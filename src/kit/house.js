@@ -1337,6 +1337,113 @@ function cravingPanel() {
       <div class="panel crave"><div class="crave-row">${cell(c.meal, 'meal')}${cell(c.snack, 'snack')}</div><p class="muted small crave-sub">${t('crave.sub')}</p></div>`;
 }
 
+// [옵시디언 1.5.0] 오늘의 목표 + 집중 시간. 홈 맨 위의 큰 칸 (호스트의 D.goal · D.focus = core/goals.js)
+const focusLeft = (end) => {
+  const s = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+function focusBox() {
+  const f = D.focus || { on: false, min: 25 };
+  if (f.on)
+    return `<div class="focus-box on"><div class="focus-k">${icon('hourglass', 14)}<span data-focus-left="${f.end}">${esc(t('home.focusOn', { left: focusLeft(f.end) }))}</span></div>
+      <button class="btn ghost small" data-act="focusStop">${t('home.focusStop')}</button></div>`;
+  const tot = f.total && f.total.sessions ? `<small class="muted">${t('home.focusTotal', { n: fmt(f.total.sessions), m: fmt(f.total.minutes) })}</small>` : '';
+  return `<div class="focus-box"><button class="btn primary" data-act="focusStart">${icon('hourglass', 13)}${t('home.focusBtn', { m: f.min })}</button>
+    <small class="muted">${t('home.focusSub', { coins: fmt(f.min * 2) })}</small>${tot}</div>`;
+}
+function goalPanel() {
+  const g = D.goal;
+  if (!g) return '';
+  if (!g.on)
+    return `<h2>${t('home.goalTitle')}</h2>
+      <div class="panel goal-hero off"><div class="goal-main"><b>${t('home.goalOffTitle')}</b><p class="muted small">${t('home.goalOffDesc', { coins: fmt(g.coins) })}</p>
+      <button class="btn" data-act="goalEdit">${t('home.goalSet')}</button></div>${focusBox()}</div>`;
+  const W = g.unit === 'words' ? 'W' : 'C';
+  const pct = Math.round(g.pct * 100);
+  const week = g.week.map((d) => `<i class="${d.done ? 'on' : ''}"></i>`).join('');
+  const streak = g.current ? `${icon('fire', 12)}${t('home.goalStreak', { d: g.current })}${g.best > g.current ? ' · ' + t('home.goalBest', { d: g.best }) : ''}` : g.best ? t('home.goalBest', { d: g.best }) : '';
+  return `<div class="h2-row"><h2>${t('home.goalTitle')}</h2><button class="btn head-act" data-act="goalEdit">${icon('gear', 12)}${t('home.goalEdit')}</button></div>
+    <div class="panel goal-hero ${g.done ? 'done' : ''}">
+      <div class="goal-ring" style="--p:${pct}"><span>${g.done ? icon('check', 22) : pct + '%'}</span></div>
+      <div class="goal-main">
+        <div class="goal-v"><b>${fmt(g.value)}</b> <span class="muted">${t('home.goalOf' + W, { target: fmt(g.target) })}</span></div>
+        <div class="bar ${g.done ? 'good' : ''}"><i style="width:${pct}%"></i></div>
+        <div class="goal-sub">${g.done ? t('home.goalDone', { coins: fmt(g.coins) }) : t('home.goalLeft' + W, { n: fmt(g.left) })}</div>
+        <div class="goal-week"><span class="dots" aria-hidden="true">${week}</span><span class="muted ico-row">${streak}</span></div>
+      </div>
+      ${focusBox()}
+    </div>`;
+}
+// 집중하는 동안 남은 시간을 1초마다 (호스트는 끝 시각만 준다)
+setInterval(() => {
+  for (const el of $$('[data-focus-left]')) el.textContent = t('home.focusOn', { left: focusLeft(Number(el.dataset.focusLeft)) });
+}, 1000);
+
+// 하루 목표 고르기 (홈의 '바꾸기' · '목표 정하기'). 단위 · 미리 정한 양 · 직접 입력 · 끄기
+const GOAL_PRESETS = { words: [100, 300, 500, 1000, 1667], chars: [300, 1000, 2000, 5000] };
+const GOAL_MAX = { words: 20000, chars: 100000 };
+function goalChips(unit, target) {
+  return GOAL_PRESETS[unit]
+    .map((n) => `<button class="chip ${n === target ? 'on' : ''}" data-goal-n="${n}">${t(unit === 'words' ? 'goal.presetW' : 'goal.presetC', { n: fmt(n) })}${n === 1667 ? `<small>${t('goal.nano')}</small>` : ''}</button>`)
+    .join('');
+}
+function openGoalPicker() {
+  const g = D.goal || { unit: 'words', target: 300, on: true };
+  let unit = g.unit;
+  let target = g.target;
+  const el = openModal(
+    `<div class="modal-top"><h2>${t('goal.pickTitle')}</h2><button class="btn ghost small" data-close>${t('modal.close')}</button></div>
+    <p class="muted" style="margin-top:-4px">${t('goal.pickSub')}</p>
+    <div class="goal-pick">
+      <div class="seg">${['words', 'chars'].map((u) => `<button class="chip ${u === unit ? 'on' : ''}" data-goal-unit="${u}">${t('goal.unit.' + u)}</button>`).join('')}</div>
+      <div class="chips" id="goal-chips">${goalChips(unit, target)}</div>
+      <div class="field"><div class="lbl">${t('goal.pickCustom')}</div><input type="number" id="goal-n" min="10" max="${GOAL_MAX[unit]}" value="${target}"></div>
+    </div>
+    <div class="nav"><button class="btn ghost" data-goal-off>${t('goal.pickOff')}</button><button class="btn primary" data-goal-save>${t('goal.pickSave')}</button></div>`,
+    'goal-modal',
+  );
+  const paint = () => {
+    $('#goal-chips', el).innerHTML = goalChips(unit, target);
+    $$('[data-goal-unit]', el).forEach((b) => b.classList.toggle('on', b.dataset.goalUnit === unit));
+    $('#goal-n', el).value = target;
+    $('#goal-n', el).max = GOAL_MAX[unit];
+    bindChips();
+  };
+  const bindChips = () =>
+    $$('[data-goal-n]', el).forEach((b) =>
+      b.addEventListener('click', () => {
+        target = Number(b.dataset.goalN);
+        paint();
+      }),
+    );
+  bindChips();
+  $$('[data-goal-unit]', el).forEach((b) =>
+    b.addEventListener('click', () => {
+      if (b.dataset.goalUnit === unit) return;
+      unit = b.dataset.goalUnit;
+      target = GOAL_PRESETS[unit][1];
+      paint();
+    }),
+  );
+  $('#goal-n', el).addEventListener('input', (e) => {
+    const n = Math.round(Number(e.target.value));
+    if (n > 0) target = Math.min(GOAL_MAX[unit], n);
+    $$('[data-goal-n]', el).forEach((b) => b.classList.toggle('on', Number(b.dataset.goalN) === target));
+  });
+  $('[data-goal-save]', el).addEventListener('click', async () => {
+    closeModal();
+    await apply(await pet.set({ goal: { on: true, unit, target } }));
+    renderView();
+    toast(t('toast.saved'), 'check');
+  });
+  $('[data-goal-off]', el).addEventListener('click', async () => {
+    closeModal();
+    await apply(await pet.set({ goal: { on: false, unit, target } }));
+    renderView();
+    toast(t('toast.saved'));
+  });
+}
+
 // 오늘의 소식 (2026-10-10): 업적 · 보상 · 레벨 · 친구 · 보물. 방해 금지 등으로 못 띄운 말풍선도 여기 남는다
 let newsOpen = false;
 const NEWS_ICON = { grow: 'star', achieve: 'medal', item: 'gift', quest: 'check', attend: 'fire', retro: 'medal', event: 'paw' };
@@ -1422,14 +1529,23 @@ const TABS = {
       </div>`;
     // 오늘 숫자 카드에 소제목을 달고, 자주 켜고 끄는 방해 금지는 그 줄 오른쪽에 둔다
     const todayHead = `<div class="h2-row"><h2>${t('home.today')}</h2><button class="btn head-act ${D.quiet ? 'alert' : ''}" data-act="quiet">${icon(D.quiet ? 'bellOff' : 'bell', 12)}${t(D.quiet ? 'home.quietOff' : 'home.quietOn')}</button></div>`;
+    // [옵시디언 1.5.0] 목표를 단어로 세면 첫 카드도 단어로. 세션 카드 자리에 끝낸 할 일 (세션은 통계 탭에)
+    const words = D.goal && D.goal.unit === 'words';
+    const firstCard = words
+      ? `<div class="panel stat"><div class="k">${t('home.todayWords')}${info('words')}</div><div class="v">${fmt(u.w || 0)}</div><div class="d">+${fmt(Math.floor(u.c / D.formula.CHARS_PER_XP))} XP</div></div>`
+      : `<div class="panel stat"><div class="k">${t('home.todayChars')}${info('chars')}</div><div class="v">${fmt(u.c)}</div><div class="d">+${fmt(Math.floor(u.c / D.formula.CHARS_PER_XP))} XP</div></div>`;
+    const tasksCard = D.formula.XP_PER_TASK
+      ? `<div class="panel stat"><div class="k">${t('home.todayTasks')}${info('tasks')}</div><div class="v">${fmt(u.k || 0)}</div><div class="d">+${fmt((u.k || 0) * D.formula.XP_PER_TASK)} XP</div></div>`
+      : `<div class="panel stat"><div class="k">${t('home.todaySessions')}${info('sessions')}</div><div class="v">${fmt(u.s)}</div><div class="d">+${fmt(u.s * D.formula.XP_PER_SESSION)} XP</div></div>`;
     return `
       ${hook}
+      ${goalPanel()}
       ${todayHead}
       <div class="cards">
-        <div class="panel stat"><div class="k">${t('home.todayChars')}${info('chars')}</div><div class="v">${fmt(u.c)}</div><div class="d">+${fmt(Math.floor(u.c / D.formula.CHARS_PER_XP))} XP</div></div>
+        ${firstCard}
         <div class="panel stat"><div class="k">${t('home.todayLinks')}${info('links')}</div><div class="v">${fmt(u.l)}</div><div class="d">+${fmt(u.l * D.formula.XP_PER_LINK)} XP</div></div>
         <div class="panel stat"><div class="k">${t('home.todayNotes')}${info('notes')}</div><div class="v">${fmt(u.n)}</div><div class="d">+${fmt(u.n * D.formula.XP_PER_NOTE)} XP</div></div>
-        <div class="panel stat"><div class="k">${t('home.todaySessions')}${info('sessions')}</div><div class="v">${fmt(u.s)}</div><div class="d">+${fmt(u.s * D.formula.XP_PER_SESSION)} XP</div></div>
+        ${tasksCard}
         <div class="panel stat"><div class="k">${t('home.attendance')}</div><div class="v ico-row">${icon('fire', 18)}${st.current}</div><div class="d">${t('home.streakSub', { best: st.best, total: st.total })}${D.game.streakGifts && D.game.streakGifts.next ? `<br>${t('streak.nextGift', { n: D.game.streakGifts.left })}` : ''}</div></div>
       </div>
 
@@ -2038,7 +2154,9 @@ const TABS = {
     const motionCards = motionGroups();
     // 순서: 자주 만지는 것(캐릭터·말·생활 알림) → 모션 → 연결·프로젝트 → 가끔 쓰는 것·되돌릴 수 없는 것(초기화).
     // 설정이 길어서 맨 위에 섹션 바로 가기를 둔다
-    const toc = [['set-voice', 'set.voice'], ['set-life', 'set.life'], ['set-motions', 'set.motions'], ['set-projects', 'set.projects'], ['set-misc', 'set.misc'], ['set-reset', 'set.reset']]
+    const goal = D.goal || { on: true, unit: 'words', target: 300 };
+    const focusMin = (D.focus && D.focus.min) || 25;
+    const toc = [['set-goal', 'goal.setHead'], ['set-voice', 'set.voice'], ['set-life', 'set.life'], ['set-motions', 'set.motions'], ['set-projects', 'set.projects'], ['set-misc', 'set.misc'], ['set-reset', 'set.reset']]
       .map(([id, key]) => `<button class="chip" data-jump="${id}">${t(key)}</button>`)
       .join('');
     return `
@@ -2053,6 +2171,21 @@ const TABS = {
         <div class="field theme-field"><div class="lbl">${t('set.theme')}<small>${t('set.themeSub')}</small></div>
           <div class="theme-picks">${THEMES.map((k) => `<button class="theme-pick ${themeOf(s.theme) === k ? 'on' : ''}" data-theme-pick="${k}" aria-pressed="${themeOf(s.theme) === k}">${k === 'auto' ? `<i class="sw sw-auto"></i>` : `<i class="sw" style="background:${THEME_SWATCH[k][0]}"><b style="background:${THEME_SWATCH[k][1]}"></b></i>`}${t('theme.' + k)}</button>`).join('')}</div></div>
         <div class="field"><div class="lbl">${t('obs.showPet')}<small>${t('obs.showPetDesc')}</small></div>${sw('showPet', s.showPet !== false)}</div>
+      </div>
+
+      <h2 id="set-goal">${t('goal.setHead')}</h2>
+      <div class="panel">
+        <div class="field"><div class="lbl">${t('goal.setOn')}<small>${t('goal.setOnDesc', { coins: 100 })}</small></div><label class="switch"><input type="checkbox" data-goal-on ${goal.on ? 'checked' : ''}><span></span></label></div>
+        ${
+          goal.on
+            ? `<div class="field"><div class="lbl">${t('goal.setUnit')}<small>${t('goal.setUnitDesc')}</small></div>
+          <select data-goal-unit-sel><option value="words" ${goal.unit === 'words' ? 'selected' : ''}>${t('goal.unit.words')}</option><option value="chars" ${goal.unit === 'chars' ? 'selected' : ''}>${t('goal.unit.chars')}</option></select></div>
+        <div class="field"><div class="lbl">${t('goal.setTarget')}<small>${t(goal.unit === 'words' ? 'goal.setTargetDescW' : 'goal.setTargetDescC')}</small></div>
+          <div class="inline"><input type="number" min="10" max="${goal.unit === 'words' ? 20000 : 100000}" step="10" data-goal-target value="${goal.target}">${t('goal.unit.' + goal.unit)}</div></div>`
+            : ''
+        }
+        <div class="field"><div class="lbl">${t('focus.setLen')}<small>${t('focus.setLenDesc')}</small></div>
+          <select data-key="focusMin">${[15, 25, 50].map((m) => `<option value="${m}" ${m === focusMin ? 'selected' : ''}>${t('focus.menuLen', { m })}</option>`).join('')}</select></div>
       </div>
 
       <h2 id="set-voice">${t('set.voice')}</h2>
@@ -2621,6 +2754,35 @@ function bindView(view) {
   );
 
 
+  // [옵시디언 1.5.0] 하루 목표 (켜기 · 단위 · 양). 다른 칸은 그대로 두고 바꾼 것만 보낸다
+  const goalNow = () => ({ ...(D.goal ? { on: D.goal.on, unit: D.goal.unit, target: D.goal.target } : {}) });
+  $$('[data-goal-on]', view).forEach((el) =>
+    el.addEventListener('change', async () => {
+      await apply(await pet.set({ goal: { ...goalNow(), on: el.checked } }));
+      renderView();
+      toast(t('toast.saved'));
+    }),
+  );
+  $$('[data-goal-unit-sel]', view).forEach((el) =>
+    el.addEventListener('change', async () => {
+      await apply(await pet.set({ goal: { ...goalNow(), unit: el.value, target: GOAL_PRESETS[el.value][1] } }));
+      renderView();
+      toast(t('toast.saved'));
+    }),
+  );
+  $$('[data-goal-target]', view).forEach((el) =>
+    el.addEventListener('change', async () => {
+      const n = Math.round(Number(el.value));
+      if (!(n > 0)) {
+        el.value = D.goal ? D.goal.target : '';
+        return;
+      }
+      await apply(await pet.set({ goal: { ...goalNow(), target: n } }));
+      el.value = D.goal ? D.goal.target : n;
+      toast(t('toast.saved'));
+    }),
+  );
+
   $$('input[data-project]', view).forEach((el) =>
     el.addEventListener('change', async () => {
       const excluded = $$('input[data-project]', view).filter((x) => !x.checked).map((x) => x.dataset.project);
@@ -2687,6 +2849,18 @@ async function act(name) {
         const el = $('.mgroups');
         if (el) el.scrollIntoView({ block: 'center' });
       }, 30);
+      break;
+    // [옵시디언 1.5.0] 집중 시간 · 하루 목표
+    case 'focusStart':
+      await apply(await pet.focusStart((D.focus && D.focus.min) || 25));
+      renderView();
+      break;
+    case 'focusStop':
+      await apply(await pet.focusStop());
+      renderView();
+      break;
+    case 'goalEdit':
+      openGoalPicker();
       break;
     case 'quiet':
       await apply(await pet.setQuiet(D.quiet ? 0 : 60));
@@ -2826,15 +3000,21 @@ function renderWelcome() {
       <div class="fur-grid w-ears">${earCells(D.settings.ears || 'perk')}</div>
       <p>${t('w.fresh')}</p>
       <p class="muted" style="font-size:12px">${D.loading ? t('w.loading') : t('w.past', { lv: fmt(D.pastLevel || 1) })}</p>`,
-    () => `
-      <h2>${t('w.title3')}</h2>
-      <p>${t('w.body3')}</p>
+    // [옵시디언 1.5.0] 어떻게 자라는지 + 하루 목표 고르기
+    () => {
+      const unit = wChoice.goal ? wChoice.goal.unit : (D.goal && D.goal.unit) || 'words';
+      const cur = wChoice.goal ? wChoice.goal : D.goal || { on: true, unit, target: GOAL_PRESETS[unit][1] };
+      const chip = (n) => `<button class="chip ${cur.on && cur.target === n ? 'on' : ''}" data-w-goal="${n}">${t(unit === 'words' ? 'goal.presetW' : 'goal.presetC', { n: fmt(n) })}</button>`;
+      return `
+      <h2>${t('w.goalTitle')}</h2>
+      <p>${t('w.goalBody')}</p>
+      <div class="chips w-goal">${GOAL_PRESETS[unit].slice(0, 4).map(chip).join('')}<button class="chip ${cur.on ? '' : 'on'}" data-w-goal="0">${t('w.goalOff')}</button></div>
       <ul style="padding-left:18px">
         <li>${t('w.b3a')}</li>
-        <li>${t('w.b3b')}</li>
         <li>${t('w.b3c')}</li>
       </ul>
-      <p class="muted" style="font-size:12px">${t('w.hookNote')}</p>`,
+      <p class="muted" style="font-size:12px">${t('w.goalNote')}</p>`;
+    },
     () => `
       <canvas class="pixel" data-stage="${g ? g.stageKey : 'cat'}" data-mood="active" data-acc="${esc(D.settings.accessory)}"></canvas>
       <h2>${t('w.title4')}</h2>
@@ -2842,6 +3022,7 @@ function renderWelcome() {
         <li>${t('w.b4a')}</li>
         <li>${t('w.b4b')}</li>
         <li>${t('w.b4c')}</li>
+        ${window.KC_OBSIDIAN ? `<li>${t('w.b4focus')}</li>` : ''}
       </ul>
       <p class="muted" style="font-size:12px">${t('w.trayNote')}</p>`,
   ];
@@ -2866,6 +3047,16 @@ function renderWelcome() {
   if (hk) hk.onclick = async () => { await apply(await pet.installHooks()); renderWelcome(); };
   const lg = $('#w-login');
   if (lg) lg.onchange = async () => apply(await pet.setLogin(lg.checked));
+  // 하루 목표 고르기 (1.5.0): 누르면 바로 저장한다 (0 = 목표 없이)
+  $$('[data-w-goal]', el).forEach((b) =>
+    b.addEventListener('click', async () => {
+      const n = Number(b.dataset.wGoal);
+      const unit = (D.goal && D.goal.unit) || 'words';
+      wChoice.goal = { on: n > 0, unit, target: n > 0 ? n : (D.goal && D.goal.target) || GOAL_PRESETS[unit][1] };
+      await apply(await pet.set({ goal: wChoice.goal }));
+      $$('[data-w-goal]', el).forEach((x) => x.classList.toggle('on', x === b));
+    }),
+  );
   // 귀 고르기: 누르는 즉시 바탕화면 고양이도 바뀐다
   $$('[data-ear-pick]', el).forEach((b) =>
     b.addEventListener('click', async () => {
@@ -2903,9 +3094,17 @@ const WHATS_NEW = [
   ['art', 'gift', 'shop'],
   ['streak', 'fire', 'home'],
 ];
+// [옵시디언 1.5.0] 하루 목표 · 집중 시간 · 끝낸 할 일 · 단어 · 새 업적
+const WHATS_NEW_OBS = [
+  ['goal', 'star', 'goal'],
+  ['focus', 'hourglass', 'home'],
+  ['tasks', 'check', 'home'],
+  ['words', 'scroll', 'settings'],
+  ['badges', 'medal', 'achievements'],
+];
 function showWhatsNew() {
   const v = D.version || '';
-  const rows = WHATS_NEW.map(
+  const rows = (window.KC_OBSIDIAN ? WHATS_NEW_OBS : WHATS_NEW).map(
     ([id, ic, go]) => `<li class="wn-row">${icon(ic, 18)}<div><b>${t('wn.' + id + '.t')}</b><div class="muted">${t('wn.' + id + '.d')}</div></div>
       <button class="btn ghost small" data-wn-go="${go}">${t('wn.go')}</button></li>`,
   ).join('');
@@ -2923,6 +3122,9 @@ function showWhatsNew() {
       if (go === 'ears') {
         setTab('wardrobe');
         openEarPicker();
+      } else if (go === 'goal') {
+        setTab('home');
+        openGoalPicker();
       } else if (go === 'card') openCard();
       else setTab(go);
     }),

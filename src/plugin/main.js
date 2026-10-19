@@ -18,11 +18,13 @@ const { KitHost, STATE_DEFAULTS } = require('./host');
 const { KitFrame } = require('./frame');
 const { PetStage } = require('./stage');
 const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./legacy');
-const { loadSafe, backupDaily } = require('./safedata');
+const { loadSafe, backupDaily, readJson } = require('./safedata');
 const { Plus, importOriginal } = require('./plus');
 const { ReviewModal, TidyModal } = require('./plus-modals');
+const { SyncBook } = require('./sync');
 const PixelArt = require('../kit/pixelart');
 const { UsageTracker, measure, folderKey, folderOf, LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET } = require('../core/usage');
+const { goalConfig, GOAL_PRESETS, GOAL_RANGE, FOCUS_LENGTHS } = require('../core/goals');
 
 const VIEW_TYPE = 'kitcommit-house';
 const DATA_VERSION = 1;
@@ -32,6 +34,11 @@ const PASTE_KEEP = MIN; // 붙여 넣은 글을 '세지 않을 몫'으로 들고
 const TYPE_STOP = 20_000; // 이만큼 손을 떼면 한 차례 쓰기가 끝난 것 (데스크톱판의 'Claude 가 답을 끝냈다')
 const BURST_DONE = 45_000; // 이만큼은 이어서 써야 '다 썼다' 모션을 한다
 const EMPTY_WAIT = 25_000; // 새로 만든 빈 노트가 이만큼 비어 있으면 느낌표 (데스크톱판의 '허락을 기다린다')
+// 이 기기에서 쓰지 않은 노트 변화(동기화로 온 글 · 다른 앱)는 이만큼 기다렸다 센다. 그 사이 다른 기기의 data.json 이 오면
+// 그쪽 노트 기록이 이미 그 글을 덮고 있어서 두 번 세지 않는다 (1.5.1, plugin/sync.js)
+const FOREIGN_WAIT = 30_000;
+const LOCAL_EDIT = 2 * MIN; // 이 안에 이 기기 편집기에서 손댄 노트는 이 기기에서 쓴 글
+const PREMERGE_EVERY = 10 * MIN; // 합치기 전 자료(data.premerge.json)를 남기는 간격
 
 // 사용자가 옵시디언에 설정해 둔 언어 ('ko', 'en', 'ja'…). 처음 설치할 때 고양이 언어를 이걸로 고른다.
 // getLanguage() 는 옵시디언 1.8.7 부터 있다. 그 전에는 옵시디언이 화면 언어에 맞춰 둔 moment 로케일을 본다
@@ -200,6 +207,54 @@ class KitSettingTab extends PluginSettingTab {
       .setName(t('obs.feedback'))
       .setDesc(t('obs.feedbackDesc'))
       .addButton((b) => b.setButtonText(t('obs.feedbackBtn')).onClick(() => p.openFeedback()));
+
+    // 하루 목표 · 집중 시간 (1.5.0). 하우스 설정과 같은 값을 바꾼다. 일반 설정 뒤 두 번째 묶음이라 제목을 단다
+    new Setting(el).setName(t('goal.setHead')).setHeading();
+    const g = goalConfig(p.settings.get('goal'), p.settings.get('language'));
+    const setGoal = (patch) => {
+      p.host.setSettings({ goal: { ...goalConfig(p.settings.get('goal'), p.settings.get('language')), ...patch } });
+      this.display();
+    };
+    new Setting(el)
+      .setName(t('goal.setOn'))
+      .setDesc(t('goal.setOnDesc', { coins: 100 }))
+      .addToggle((tg) => tg.setValue(g.on).onChange((v) => setGoal({ on: v })));
+    if (g.on) {
+      new Setting(el)
+        .setName(t('goal.setUnit'))
+        .setDesc(t('goal.setUnitDesc'))
+        .addDropdown((d) =>
+          d
+            .addOption('words', t('goal.unit.words'))
+            .addOption('chars', t('goal.unit.chars'))
+            .setValue(g.unit)
+            .onChange((v) => setGoal({ unit: v, target: v === g.unit ? g.target : GOAL_PRESETS[v][1] })),
+        );
+      const [lo, hi] = GOAL_RANGE[g.unit];
+      new Setting(el)
+        .setName(t('goal.setTarget'))
+        .setDesc(t(g.unit === 'words' ? 'goal.setTargetDescW' : 'goal.setTargetDescC'))
+        .addText((tx) => {
+          tx.inputEl.type = 'number';
+          tx.inputEl.min = String(lo);
+          tx.inputEl.max = String(hi);
+          tx.inputEl.addClass('vaultpet-goal-input');
+          tx.setValue(String(g.target));
+          tx.inputEl.addEventListener('change', () => {
+            const n = Number(tx.getValue());
+            if (Number.isFinite(n) && n > 0) setGoal({ target: n });
+            else tx.setValue(String(g.target));
+          });
+        });
+    }
+    new Setting(el)
+      .setName(t('focus.setLen'))
+      .setDesc(t('focus.setLenDesc'))
+      .addDropdown((d) => {
+        for (const m of FOCUS_LENGTHS) d.addOption(String(m), t('focus.menuLen', { m }));
+        d.setValue(String(p.host.goals.focusLength())).onChange((v) => p.host.setSettings({ focusMin: Number(v) }));
+      });
+
     el.createEl('p', { text: t('set.disclaimer'), cls: 'setting-item-description kitcommit-disclaimer' });
   }
 }
@@ -264,6 +319,7 @@ class KitCommitPlugin extends Plugin {
   async onload() {
     // 깨진 data.json 은 백업으로 되살린다 (safedata.js). 되살렸는지는 start() 에서 알린다
     const loaded = await loadSafe(this.app.vault.adapter, this.manifest.dir);
+    this.diskStamp = await this.statData(); // 마지막으로 읽거나 쓴 data.json (밖에서 바뀌었나 볼 때)
     this.loadSource = loaded.source;
     let raw = loaded.raw || {};
     // [Plus] 처음 켰으면 원래 Vault Pet 기록을 가져온다 (plugin/plus.js)
@@ -284,6 +340,8 @@ class KitCommitPlugin extends Plugin {
     this.settings = new Store(raw.settings, DEFAULT_SETTINGS, saveHook);
     this.state = new Store(raw.state, STATE_DEFAULTS, saveHook);
     this.meta = { scanned: false, baseline: { c: 0, l: 0, n: 0, s: 0 }, ...(raw.meta || {}) };
+    // 여러 기기 합치기의 판 장부 (plugin/sync.js)
+    this.sync = new SyncBook(this.deviceId(), raw);
     // 지난번에 마지막으로 저장한 때. 그 뒤로 안 바뀐 노트는 꺼져 있던 동안 쓴 글이 아니다 (scan)
     this.prevSeen = this.meta.lastSeen || 0;
     this.usage = new UsageTracker(raw.usage);
@@ -298,6 +356,8 @@ class KitCommitPlugin extends Plugin {
       else if (DEFAULT_PET_NAME[this.settings.data.language]) this.settings.data.petName = DEFAULT_PET_NAME[this.settings.data.language];
     }
     this.pending = new Set();
+    this.typed = new Map(); // 노트 경로 → 이 기기 편집기에서 마지막으로 손댄 때
+    this.foreign = new Map(); // 노트 경로 → 이 기기에서 쓰지 않은 변화를 처음 본 때 (FOREIGN_WAIT)
     this.pasted = new Map(); // 노트 경로 → 붙여넣기·끌어다 놓기로 들어온 글 { c, l, at } (세지 않는다)
     this.icons = new Set();
     this.lastInput = Date.now();
@@ -341,8 +401,10 @@ class KitCommitPlugin extends Plugin {
     window.clearTimeout(this.flushTimer);
     window.clearTimeout(this.stopTimer);
     window.clearTimeout(this.emptyTimer);
+    window.clearInterval(this.focusTimer);
     // 바닥에 떨어진 채 안 먹은 먹이는 창고로 돌려 둔 뒤 저장한다
     if (this.host) this.host.refundTreats();
+    this.unloading = true;
     this.saveNow();
     this.unmountStage();
     if (this.host) this.host.destroy();
@@ -374,6 +436,10 @@ class KitCommitPlugin extends Plugin {
     cmd('hide-hour', 'obs.cmd.hide', () => this.host.hideFor(60 * MIN));
     cmd('reset-position', 'obs.cmd.position', () => this.host.resetPosition());
     cmd('stop-play', 'obs.cmd.stopPlay', () => this.host.stopPlay());
+    // 집중 시간 (1.5.0)
+    cmd('focus-start', 'focus.cmdStart', () => this.host.focusStart(this.host.goals.focusLength()));
+    cmd('focus-stop', 'focus.cmdStop', () => this.host.focusStop());
+    cmd('goal-show', 'goal.cmdShow', () => new Notice(this.host.goalLine()));
     cmd('review', 'plus.cmdReview', () => this.openReview());
     cmd('tidy-links', 'plus.cmdTidy', () => this.openTidy());
   }
@@ -413,8 +479,9 @@ class KitCommitPlugin extends Plugin {
     this.registerEvent(workspace.on('editor-paste', (evt, editor, info) => this.notePasted(info && info.file, evt.clipboardData)));
     this.registerEvent(workspace.on('editor-drop', (evt, editor, info) => this.notePasted(info && info.file, evt.dataTransfer)));
     // 열린 노트가 밖에서 바뀌어도 editor-change 가 온다. 편집기에 포커스가 있을 때만 타이핑으로 본다
-    this.registerEvent(workspace.on('editor-change', (editor) => {
+    this.registerEvent(workspace.on('editor-change', (editor, info) => {
       if (editor && typeof editor.hasFocus === 'function' && !editor.hasFocus()) return;
+      this.markTyped(info && info.file);
       this.onType();
     }));
     this.registerEvent(workspace.on('file-open', (f) => f && this.onOpen(f)));
@@ -434,9 +501,27 @@ class KitCommitPlugin extends Plugin {
     this.backup();
     await this.scan();
     this.host.ready();
+    // 껐다 켜는 동안 집중 시간이 이어지고 있었으면 이어서 센다 (이미 끝났으면 host.focusTick 이 정리한다)
+    this.host.focusTick();
+    this.focusChanged();
     this.updateStatus();
     if (this.imported) new Notice(this.host.T.t('plus.imported', { lv: this.host.growth ? this.host.growth.level : 1 }), 10000);
     this.saveSoon();
+    // 켜는 동안 다른 기기의 data.json 이 왔으면 이제 합친다
+    if (this.mergeLater) {
+      this.mergeLater = false;
+      this.onExternalSettingsChange();
+    }
+  }
+
+  // 집중하는 동안만 상태 표시줄의 남은 시간을 1초마다 고친다
+  focusChanged() {
+    const on = this.host && this.host.goals.focusInfo().on;
+    if (on && !this.focusTimer) this.focusTimer = window.setInterval(() => this.updateStatus(), 1000);
+    else if (!on && this.focusTimer) {
+      window.clearInterval(this.focusTimer);
+      this.focusTimer = null;
+    }
   }
 
   /* ── 펫 무대 ── */
@@ -495,13 +580,21 @@ class KitCommitPlugin extends Plugin {
     return ex.length > 0 && ex.includes(folderKey(folderOf(path)));
   }
 
+  // 이 기기 편집기에서 손댄 노트 (FOREIGN_WAIT 없이 바로 센다)
+  markTyped(file) {
+    if (!file || !file.path) return;
+    this.typed.set(file.path, Date.now());
+    if (this.typed.size > 200) for (const [p, at] of this.typed) if (Date.now() - at > LOCAL_EDIT) this.typed.delete(p);
+  }
+
   notePasted(file, data) {
+    this.markTyped(file);
     if (!file || !data || typeof data.getData !== 'function') return;
     const m = measure(data.getData('text/plain') || '');
     if (!m.chars && !m.links) return;
     const p = this.pasted.get(file.path);
     const fresh = p && Date.now() - p.at < PASTE_KEEP;
-    this.pasted.set(file.path, { c: (fresh ? p.c : 0) + m.chars, l: (fresh ? p.l : 0) + m.links, at: Date.now() });
+    this.pasted.set(file.path, { c: (fresh ? p.c : 0) + m.chars, l: (fresh ? p.l : 0) + m.links, w: (fresh ? p.w || 0 : 0) + m.words, at: Date.now() });
   }
 
   async baselineFile(f) {
@@ -630,7 +723,16 @@ class KitCommitPlugin extends Plugin {
     this.pending.clear();
     const sum = { dc: 0, dl: 0, dn: 0, feat: 0 };
     const budget = { ...FLUSH_BUDGET };
+    const now = Date.now();
+    let hold = 0;
     for (const path of paths) {
+      // 이 기기에서 쓰지 않은 변화는 조금 기다린다 (다른 기기의 data.json 이 따라오면 그쪽 노트 기록으로 걸러진다)
+      const wait = this.foreignWait(path, now);
+      if (wait > 0) {
+        this.pending.add(path);
+        hold = hold ? Math.min(hold, wait) : wait;
+        continue;
+      }
       const f = this.app.vault.getAbstractFileByPath(path);
       if (!(f instanceof TFile)) continue;
       let text;
@@ -647,6 +749,7 @@ class KitCommitPlugin extends Plugin {
         // 붙여 넣은 글이 아직 파일에 다 안 들어왔을 수 있다. 남은 몫은 조금 더 들고 있는다
         skip.c -= r.skipped.c;
         skip.l -= r.skipped.l;
+        skip.w = (skip.w || 0) - (r.skipped.w || 0);
         if (skip.c <= 0 && skip.l <= 0) this.pasted.delete(path);
       }
       sum.dc += r.dc;
@@ -658,9 +761,26 @@ class KitCommitPlugin extends Plugin {
         this.host.brain.answered();
       }
     }
+    if (hold) {
+      window.clearTimeout(this.flushTimer);
+      this.flushTimer = window.setTimeout(() => this.flush(), hold + 50);
+    }
     this.saveSoon();
     if (!sum.dc && !sum.dl && !sum.dn && !sum.feat) return;
     this.host.onUsage();
+  }
+
+  // 이 기기에서 쓰지 않은 노트 변화면 더 기다릴 시간(ms), 이 기기에서 썼거나 다 기다렸으면 0
+  foreignWait(path, now = Date.now()) {
+    if (now - (this.typed.get(path) || 0) < LOCAL_EDIT) {
+      this.foreign.delete(path);
+      return 0;
+    }
+    if (!this.foreign.has(path)) this.foreign.set(path, now);
+    const left = FOREIGN_WAIT - (now - this.foreign.get(path));
+    if (left > 0) return left;
+    this.foreign.delete(path);
+    return 0;
   }
 
   // 편집기에서 글을 쓰는 중 (데스크톱판에서 Claude 가 답을 쓰는 동안 = 노트북 꺼내 같이 타이핑)
@@ -847,22 +967,40 @@ class KitCommitPlugin extends Plugin {
     return id;
   }
 
-  // 상태 표시줄: 발바닥 · 이름 · 레벨 (데스크톱판의 트레이 아이콘 자리). 누르면 트레이 메뉴
+  // 상태 표시줄: 발바닥 · 이름 · 레벨 + 오늘의 목표 막대 (데스크톱판의 트레이 아이콘 자리). 누르면 트레이 메뉴.
+  // 집중하는 동안은 목표 자리에 모래시계와 남은 시간
   updateStatus() {
     const el = this.statusEl;
     if (!el || !this.host) return;
-    const g = this.host.growth;
+    const H = this.host;
+    const g = H.growth;
     const name = this.settings.get('petName');
     const text = g ? `${name} Lv.${g.level}` : name;
-    const key = `${text}|${this.host.isQuiet()}|${this.host.petVisible()}`;
+    const focus = H.goals ? H.goals.focusInfo() : { on: false };
+    const goal = H.goals && !H.loading ? H.goals.progress() : null;
+    const goalText = goal && goal.on ? `${goal.value.toLocaleString()}/${goal.target.toLocaleString()}` : '';
+    const right = focus.on ? 'f' + H.focusLeftText(focus.left) : goal && goal.on ? `g${goalText}|${Math.round(goal.pct * 100)}|${goal.done}` : '';
+    const key = `${text}|${H.isQuiet()}|${H.petVisible()}|${right}`;
     if (this._status === key) return;
     this._status = key;
     el.empty();
-    const ic = el.createSpan({ cls: 'kitcommit-status-icon' });
-    const svg = new DOMParser().parseFromString(PixelArt.svg(this.host.isQuiet() ? 'bellOff' : 'paw', 14).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '), 'image/svg+xml').documentElement;
-    ic.appendChild(document.importNode(svg, true));
+    const pix = (name, size) => {
+      const svg = new DOMParser().parseFromString(PixelArt.svg(name, size).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '), 'image/svg+xml').documentElement;
+      return document.importNode(svg, true);
+    };
+    el.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix(H.isQuiet() && !focus.on ? 'bellOff' : 'paw', 14));
     el.createSpan({ text });
-    el.setAttribute('aria-label', this.host.T.t('obs.statusTip'));
+    if (focus.on) {
+      const f = el.createSpan({ cls: 'vaultpet-status-focus' });
+      f.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix('hourglass', 12));
+      f.createSpan({ text: H.focusLeftText(focus.left) });
+    } else if (goal && goal.on) {
+      const box = el.createSpan({ cls: 'vaultpet-status-goal' + (goal.done ? ' is-done' : '') });
+      if (goal.done) box.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix('check', 12));
+      else box.createSpan({ cls: 'vaultpet-status-bar' }).createSpan().style.setProperty('--vaultpet-goal', `${Math.round(goal.pct * 100)}%`);
+      box.createSpan({ text: goalText });
+    }
+    el.setAttribute('aria-label', `${H.goalLine()}\n${H.T.t('obs.statusTip')}`);
   }
 
   // 언어가 바뀌면 탭 이름·리본 설명을 다시
@@ -871,6 +1009,102 @@ class KitCommitPlugin extends Plugin {
     this.updateStatus();
     if (this.ribbon) this.ribbon.setAttribute('aria-label', this.host.T.t('obs.openHouse'));
     for (const v of this.houseViews()) if (v.leaf && typeof v.leaf.updateHeader === 'function') v.leaf.updateHeader();
+  }
+
+  /* ── 여러 기기 (1.5.1, plugin/sync.js) ── */
+
+  // 이 기기 이름 (볼트마다). 동기화되지 않는 이 기기의 localStorage 에 둔다
+  deviceId() {
+    const KEY = 'vault-pet-device';
+    const app = this.app;
+    const local = `${KEY}-${app.appId || ''}`;
+    let id = null;
+    try {
+      id = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage(KEY) : window.localStorage.getItem(local);
+    } catch {
+      id = null;
+    }
+    if (typeof id === 'string' && id) return id;
+    id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try {
+      if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage(KEY, id);
+      else window.localStorage.setItem(local, id);
+    } catch {
+      // 못 남기면 켤 때마다 새 기기로 본다 (합치기가 조금 덜 정확할 뿐)
+    }
+    return id;
+  }
+
+  // 다른 기기(옵시디언 Sync · iCloud …)가 data.json 을 바꿨다. 다시 읽어 지금 것과 합친다
+  async onExternalSettingsChange() {
+    if (!this.sync || !this.host) return;
+    if (!this.started || this.host.loading || this.merging) {
+      this.mergeLater = true;
+      return;
+    }
+    this.merging = true;
+    try {
+      // 내가 방금 쓴 그대로면 볼 것 없다
+      const stamp = await this.statData();
+      if (stamp && stamp === this.diskStamp) return;
+      const { raw } = await readJson(this.app.vault.adapter, `${this.manifest.dir}/data.json`);
+      // 깨졌거나 아직 다 안 써졌으면 다음 소식을 기다린다 (지금 것은 그대로, 다음 저장이 덮는다)
+      if (!raw || !raw.settings || !raw.state) return;
+      this.diskStamp = stamp;
+      const local = this.snapshot();
+      const r = this.sync.incoming(local, raw);
+      // 상대가 어느 판까지 봤는지는 바뀐 게 없어도 적어 둔다 (다음 합치기의 공통 조상)
+      this.meta.sync = r.merged.meta.sync;
+      if (!r.changed) return;
+      this.keepPremerge(local);
+      this.applyData(r.merged);
+      this.host.reloadShared();
+      this.saveSoon();
+    } catch (e) {
+      console.error('[Vault Pet] sync', e);
+    } finally {
+      this.merging = false;
+      if (this.mergeLater && this.started && !this.host.loading) {
+        this.mergeLater = false;
+        window.setTimeout(() => this.onExternalSettingsChange(), 0);
+      }
+    }
+  }
+
+  // data.json 의 '수정 시각|크기'. 못 읽으면 null
+  async statData() {
+    try {
+      const st = await this.app.vault.adapter.stat(`${this.manifest.dir}/data.json`);
+      return st ? `${st.mtime}|${st.size}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 지금 메모리의 자료 (합치기 재료). 밥 게이지는 따로 들고 있어서 먼저 적어 둔다
+  snapshot() {
+    if (this.host && this.host.gauge) this.host.gauge.save();
+    return structuredClone({ version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta });
+  }
+
+  // 합친 자료를 메모리에 넣는다. core 모듈들이 같은 객체를 들고 있어서 갈아 끼우지 않고 안을 바꾼다
+  applyData(m) {
+    const put = (target, src) => {
+      for (const k of Object.keys(target)) if (!(k in src)) delete target[k];
+      Object.assign(target, src);
+    };
+    put(this.settings.data, m.settings || {});
+    put(this.state.data, m.state || {});
+    put(this.usage.data, m.usage || {});
+    this.meta.sync = m.meta.sync;
+  }
+
+  // 합치기 전 이 기기 자료를 data.premerge.json 으로 남긴다 (10분에 한 번까지). 합치기가 잘못돼도 되돌릴 수 있게
+  keepPremerge(local) {
+    const now = Date.now();
+    if (now - (this.premergeAt || 0) < PREMERGE_EVERY) return;
+    this.premergeAt = now;
+    this.app.vault.adapter.write(`${this.manifest.dir}/data.premerge.json`, JSON.stringify(local)).catch((e) => console.error('[Vault Pet] premerge', e));
   }
 
   /* ── 저장 ── */
@@ -900,12 +1134,31 @@ class KitCommitPlugin extends Plugin {
     this.saveTimer = window.setTimeout(() => this.saveNow(), 1500);
   }
 
-  saveNow() {
+  async saveNow() {
     window.clearTimeout(this.saveTimer);
     if (!this.settings) return;
+    // 다른 기기가 쓴 data.json 을 아직 못 합쳤으면 덮어쓰지 않는다. 먼저 합치고, 합칠 수 없는 때(켜는 중)면 뒤로 미룬다
+    if (this.sync && !this.unloading && (this.merging || this.mergeLater || (await this.diskChanged()))) {
+      if (!this.started || !this.host || this.host.loading || this.merging) return this.saveSoon();
+      await this.onExternalSettingsChange();
+    }
     this.dirty = false;
     this.meta.lastSeen = Date.now();
-    return this.saveData({ version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta }).catch((e) => console.error('[Vault Pet] save', e));
+    const data = { version: DATA_VERSION, settings: this.settings.data, state: this.state.data, usage: this.usage.data, meta: this.meta };
+    // 공유하는 칸이 바뀌었으면 새 판 번호 (plugin/sync.js)
+    if (this.sync) this.meta = this.sync.stamp(data).meta;
+    try {
+      await this.saveData(data);
+      this.diskStamp = await this.statData();
+    } catch (e) {
+      console.error('[Vault Pet] save', e);
+    }
+  }
+
+  // 마지막으로 읽거나 쓴 뒤 data.json 이 밖에서 바뀌었나
+  async diskChanged() {
+    const s = await this.statData();
+    return !!s && s !== this.diskStamp;
   }
 }
 

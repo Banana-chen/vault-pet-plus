@@ -19,6 +19,8 @@ const DEFAULT_SETTINGS = {
   chatter: true,
   aiTips: true, // 가끔 옵시디언 활용 팁
   lowPower: false, // 저전력 모드: 펫 판이 그림을 덜 그리고 덜 돌아다닌다 (kit/pet.js)
+  goal: null, // 하루 목표 { on, unit: 'words' | 'chars', target } (1.5.0). null 이면 언어에 맞는 기본값 (core/goals.js)
+  focusMin: 25, // 집중 시간 길이 (15 · 25 · 50분)
   cardPrefs: null, // 자랑 · 리캡 카드에서 고른 것 (기간 · 칸 · 테마 · 자세 · 한 줄). null 이면 기본 (kit/house.js 의 CARD_DEFAULT)
 
   lunchEnabled: true,

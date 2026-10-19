@@ -127,3 +127,43 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
 .vpp-modal .vpp-after {
   background: rgba(var(--color-green-rgb), 0.1);
 }
+
+/* 오늘의 목표 막대 · 집중 남은 시간 (상태 표시줄, 1.5.0) */
+.vaultpet-status-goal,
+.vaultpet-status-focus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vaultpet-status-bar {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+}
+
+.vaultpet-status-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--vaultpet-goal, 0%);
+  border-radius: 3px;
+  background: var(--interactive-accent);
+}
+
+.vaultpet-status-goal.is-done {
+  color: var(--text-success);
+}
+
+.vaultpet-status-focus {
+  color: var(--text-accent);
+}
+
+.vaultpet-goal-input {
+  width: 7em;
+}

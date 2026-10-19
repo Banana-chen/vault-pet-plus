@@ -371,12 +371,15 @@ class Brain extends EventEmitter {
       return;
     }
 
+    // [옵시디언 1.5.0] 처음 만난 지 얼마 안 됐으면 밥 알림은 쉰다 (host 의 graceUntil). 그날 끼니는 건너뛴 걸로 친다
+    const grace = now < (this.graceUntil || 0);
     for (const meal of [
       { key: 'lunch', on: s.lunchEnabled, at: s.lunchTime },
       { key: 'dinner', on: s.dinnerEnabled, at: s.dinnerTime },
     ]) {
       const start = minutesOfDay(meal.at);
       if (meal.on && present && minute >= start && minute < start + 70 && this.once(meal.key, d)) {
+        if (grace) continue;
         this.getHungry(now);
         this.emit('action', 'eat');
         this.say(T.line(meal.key), meal.key);
@@ -385,7 +388,7 @@ class Brain extends EventEmitter {
     }
 
     // 배고픈 채로 방치되면 한 시간마다 한 번씩 조른다(2026-10-10: 20분 → 60분, 배고픔은 벌이 아니다). 한 시간을 넘기면 더 처절해진다
-    if (this.hungry(now) && present && this.ready('hungry', 60 * MIN)) {
+    if (!grace && this.hungry(now) && present && this.ready('hungry', 60 * MIN)) {
       const starving = now - this.life.hungrySince > 60 * MIN;
       this.emit('action', 'slot:hungry');
       // 절반쯤은 오늘 먹고 싶은 밥 이름을 댄다 (main.js 의 cravingMeal)

@@ -6422,7 +6422,7 @@
       'ach.todo_10.name': '清單控',
       'ach.todo_10.desc': 'Claude 建立待辦清單 10 次',
       'ach.todo_10.tip': '多步驟的活兒拆成待辦清單，就不會漏掉',
-      'ach.todo_100.name': '覈取方塊上癮',
+      'ach.todo_100.name': '核取方塊上癮',
       'ach.todo_100.desc': 'Claude 建立待辦清單 100 次',
       'ach.web_10.name': '去查檢視',
       'ach.web_10.desc': '網頁搜尋或讀取網頁 10 次',
