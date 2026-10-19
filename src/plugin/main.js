@@ -186,7 +186,7 @@ class KitSettingTab extends PluginSettingTab {
         d
           .addOption('ko', '한국어')
           .addOption('en', 'English')
-          .addOption('zh', '中文')
+          .addOption('zh', '繁體中文')
           .setValue(p.settings.get('language'))
           .onChange((v) => {
             p.host.setSettings({ language: v });

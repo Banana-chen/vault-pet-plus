@@ -1,5 +1,5 @@
 // [Plus] 복습 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
-// 중국어는 이 포크를 쓰는 사람에 맞춰 번체로 적었다 (원판 zh 는 간체)
+// 중국어는 번체 (이 포크는 zh 전체를 번체로 바꿨다)
 (function (root) {
   const I = typeof module === 'object' && module.exports && module.exports.UI ? module.exports : root.I18N;
   if (!I) return;
@@ -127,7 +127,7 @@
       'plus.markRight': '算我對',
       'plus.markWrong': '算我錯',
       'plus.next': '下一題',
-      'plus.open': '打開筆記',
+      'plus.open': '開啟筆記',
       'plus.summary': '答對 {right}/{total} · +{xp} XP',
       'plus.tidyTitle': '整理連結',
       'plus.tidyEmpty': '沒有可以連起來的地方，很整齊！',

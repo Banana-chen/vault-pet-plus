@@ -111,7 +111,7 @@ class KitFrame {
     // 빈 iframe(about:blank) 문서에 화면 뼈대를 넣는다. 글은 전부 이 플러그인이 가진 고정 HTML 이다
     const parsed = new win.DOMParser().parseFromString(`<!doctype html><html><head><meta charset="utf-8"><title>Vault Pet</title></head><body>${body}</body></html>`, 'text/html');
     d.replaceChild(d.importNode(parsed.documentElement, true), d.documentElement);
-    d.documentElement.lang = (this.host.T && this.host.T.locale) || 'ko'; // 중국어면 'zh-CN' → :lang(zh) 글꼴 (pet.css · house.css)
+    d.documentElement.lang = (this.host.T && this.host.T.locale) || 'ko'; // 중국어면 'zh-TW' → :lang(zh) 글꼴 (pet.css · house.css)
     d.documentElement.className = `${opts.dark ? 'theme-dark' : 'theme-light'} kc-${this.kind}`;
     const style = d.createElement('style');
     style.textContent = css;

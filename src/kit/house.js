@@ -50,7 +50,7 @@ const bigTok = (n) => new Intl.NumberFormat('en-US', { notation: 'compact', maxi
 const hourName = (h) =>
   h == null ? '-'
   : T.lang === 'en' ? `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`
-  : T.lang === 'zh' ? (h === 0 ? '凌晨0点' : h === 12 ? '中午12点' : `${h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '晚上'}${h % 12}点`)
+  : T.lang === 'zh' ? (h === 0 ? '凌晨0點' : h === 12 ? '中午12點' : `${h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '晚上'}${h % 12}點`)
   : `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시`;
 const coins = (n, px = 14) => `${icon('coin', px)}<span>${t('shop.coin', { n: fmt(n) })}</span>`;
 // [옵시디언] 글자·링크·새 노트·세션·노트 열기 퀘스트
@@ -334,7 +334,7 @@ function drawCard(P = cardPrefsNow(), raw = cardData[P.period]) {
   g.scale(S, S);
   g.imageSmoothingEnabled = false;
   // 중국어는 프리텐다드에 없는 한자를 중국어 글꼴로 (맑은 고딕의 한자로 섞여 나오지 않게)
-  const cjk = T.lang === 'zh' ? "'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', " : '';
+  const cjk = T.lang === 'zh' ? "'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Noto Sans TC', 'Source Han Sans TC', " : '';
   const font = (w, px) => `${w} ${px}px Pretendard, ${cjk}'Malgun Gothic', sans-serif`;
   const text = (s, x, y, f, color = TH.ink, align = 'center') => {
     g.font = f;

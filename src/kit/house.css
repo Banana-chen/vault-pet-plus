@@ -21,8 +21,8 @@
 
 /* 중국어: 프리텐다드에 없는 한자는 중국어 글꼴로 (맑은 고딕의 한자가 섞이거나 두부 글자가 나오지 않게) */
 :root:lang(zh) {
-  --pixel: 'Pretendard', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Malgun Gothic', system-ui, sans-serif;
-  --body: 'Pretendard', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Malgun Gothic', system-ui, sans-serif;
+  --pixel: 'Pretendard', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Noto Sans TC', 'Source Han Sans TC', 'Malgun Gothic', system-ui, sans-serif;
+  --body: 'Pretendard', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Noto Sans TC', 'Source Han Sans TC', 'Malgun Gothic', system-ui, sans-serif;
 }
 
 :root.dark {

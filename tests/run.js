@@ -796,13 +796,13 @@ test('i18n zh: 영어에 있는 화면 글 · 대사 종류가 중국어에도 �
   }
 });
 
-test('i18n zh: 물건 · 모션 이름이 다 있고, 로케일은 zh-CN', () => {
+test('i18n zh: 물건 · 모션 이름이 다 있고, 로케일은 zh-TW', () => {
   const shop = require(path.join(src, 'core/shop'));
   for (const it of [...shop.ACCESSORIES, ...shop.FOODS, ...shop.TOYS]) assert.ok(I18N.UI.zh['item.' + it.key], `item.${it.key}`);
   for (const m of shop.MOTIONS) assert.ok(I18N.UI.zh['motion.' + m.key], `motion.${m.key}`);
   const T = new I18N.Strings('zh');
   assert.strictEqual(T.lang, 'zh');
-  assert.strictEqual(T.locale, 'zh-CN');
+  assert.strictEqual(T.locale, 'zh-TW');
   assert.strictEqual(new I18N.Strings('en').locale, 'en-US');
   assert.strictEqual(new I18N.Strings('ko').locale, 'ko-KR');
   assert.ok(T.line('hello', { name: '奇奇' }).includes('奇奇'));
