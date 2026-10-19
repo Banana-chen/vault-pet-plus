@@ -21,6 +21,7 @@ const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./l
 const { loadSafe, backupDaily } = require('./safedata');
 const PixelArt = require('../kit/pixelart');
 const { UsageTracker, measure, folderKey, folderOf, LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET } = require('../core/usage');
+const { goalConfig, GOAL_PRESETS, GOAL_RANGE, FOCUS_LENGTHS } = require('../core/goals');
 
 const VIEW_TYPE = 'kitcommit-house';
 const DATA_VERSION = 1;
@@ -198,6 +199,54 @@ class KitSettingTab extends PluginSettingTab {
       .setName(t('obs.feedback'))
       .setDesc(t('obs.feedbackDesc'))
       .addButton((b) => b.setButtonText(t('obs.feedbackBtn')).onClick(() => p.openFeedback()));
+
+    // 하루 목표 · 집중 시간 (1.5.0). 하우스 설정과 같은 값을 바꾼다. 일반 설정 뒤 두 번째 묶음이라 제목을 단다
+    new Setting(el).setName(t('goal.setHead')).setHeading();
+    const g = goalConfig(p.settings.get('goal'), p.settings.get('language'));
+    const setGoal = (patch) => {
+      p.host.setSettings({ goal: { ...goalConfig(p.settings.get('goal'), p.settings.get('language')), ...patch } });
+      this.display();
+    };
+    new Setting(el)
+      .setName(t('goal.setOn'))
+      .setDesc(t('goal.setOnDesc', { coins: 100 }))
+      .addToggle((tg) => tg.setValue(g.on).onChange((v) => setGoal({ on: v })));
+    if (g.on) {
+      new Setting(el)
+        .setName(t('goal.setUnit'))
+        .setDesc(t('goal.setUnitDesc'))
+        .addDropdown((d) =>
+          d
+            .addOption('words', t('goal.unit.words'))
+            .addOption('chars', t('goal.unit.chars'))
+            .setValue(g.unit)
+            .onChange((v) => setGoal({ unit: v, target: v === g.unit ? g.target : GOAL_PRESETS[v][1] })),
+        );
+      const [lo, hi] = GOAL_RANGE[g.unit];
+      new Setting(el)
+        .setName(t('goal.setTarget'))
+        .setDesc(t(g.unit === 'words' ? 'goal.setTargetDescW' : 'goal.setTargetDescC'))
+        .addText((tx) => {
+          tx.inputEl.type = 'number';
+          tx.inputEl.min = String(lo);
+          tx.inputEl.max = String(hi);
+          tx.inputEl.addClass('vaultpet-goal-input');
+          tx.setValue(String(g.target));
+          tx.inputEl.addEventListener('change', () => {
+            const n = Number(tx.getValue());
+            if (Number.isFinite(n) && n > 0) setGoal({ target: n });
+            else tx.setValue(String(g.target));
+          });
+        });
+    }
+    new Setting(el)
+      .setName(t('focus.setLen'))
+      .setDesc(t('focus.setLenDesc'))
+      .addDropdown((d) => {
+        for (const m of FOCUS_LENGTHS) d.addOption(String(m), t('focus.menuLen', { m }));
+        d.setValue(String(p.host.goals.focusLength())).onChange((v) => p.host.setSettings({ focusMin: Number(v) }));
+      });
+
     el.createEl('p', { text: t('set.disclaimer'), cls: 'setting-item-description kitcommit-disclaimer' });
   }
 }
@@ -330,6 +379,7 @@ class KitCommitPlugin extends Plugin {
     window.clearTimeout(this.flushTimer);
     window.clearTimeout(this.stopTimer);
     window.clearTimeout(this.emptyTimer);
+    window.clearInterval(this.focusTimer);
     // 바닥에 떨어진 채 안 먹은 먹이는 창고로 돌려 둔 뒤 저장한다
     if (this.host) this.host.refundTreats();
     this.saveNow();
@@ -363,6 +413,10 @@ class KitCommitPlugin extends Plugin {
     cmd('hide-hour', 'obs.cmd.hide', () => this.host.hideFor(60 * MIN));
     cmd('reset-position', 'obs.cmd.position', () => this.host.resetPosition());
     cmd('stop-play', 'obs.cmd.stopPlay', () => this.host.stopPlay());
+    // 집중 시간 (1.5.0)
+    cmd('focus-start', 'focus.cmdStart', () => this.host.focusStart(this.host.goals.focusLength()));
+    cmd('focus-stop', 'focus.cmdStop', () => this.host.focusStop());
+    cmd('goal-show', 'goal.cmdShow', () => new Notice(this.host.goalLine()));
   }
 
   async start() {
@@ -410,8 +464,21 @@ class KitCommitPlugin extends Plugin {
     this.backup();
     await this.scan();
     this.host.ready();
+    // 껐다 켜는 동안 집중 시간이 이어지고 있었으면 이어서 센다 (이미 끝났으면 host.focusTick 이 정리한다)
+    this.host.focusTick();
+    this.focusChanged();
     this.updateStatus();
     this.saveSoon();
+  }
+
+  // 집중하는 동안만 상태 표시줄의 남은 시간을 1초마다 고친다
+  focusChanged() {
+    const on = this.host && this.host.goals.focusInfo().on;
+    if (on && !this.focusTimer) this.focusTimer = window.setInterval(() => this.updateStatus(), 1000);
+    else if (!on && this.focusTimer) {
+      window.clearInterval(this.focusTimer);
+      this.focusTimer = null;
+    }
   }
 
   /* ── 펫 무대 ── */
@@ -476,7 +543,7 @@ class KitCommitPlugin extends Plugin {
     if (!m.chars && !m.links) return;
     const p = this.pasted.get(file.path);
     const fresh = p && Date.now() - p.at < PASTE_KEEP;
-    this.pasted.set(file.path, { c: (fresh ? p.c : 0) + m.chars, l: (fresh ? p.l : 0) + m.links, at: Date.now() });
+    this.pasted.set(file.path, { c: (fresh ? p.c : 0) + m.chars, l: (fresh ? p.l : 0) + m.links, w: (fresh ? p.w || 0 : 0) + m.words, at: Date.now() });
   }
 
   async baselineFile(f) {
@@ -622,6 +689,7 @@ class KitCommitPlugin extends Plugin {
         // 붙여 넣은 글이 아직 파일에 다 안 들어왔을 수 있다. 남은 몫은 조금 더 들고 있는다
         skip.c -= r.skipped.c;
         skip.l -= r.skipped.l;
+        skip.w = (skip.w || 0) - (r.skipped.w || 0);
         if (skip.c <= 0 && skip.l <= 0) this.pasted.delete(path);
       }
       sum.dc += r.dc;
@@ -822,22 +890,40 @@ class KitCommitPlugin extends Plugin {
     return id;
   }
 
-  // 상태 표시줄: 발바닥 · 이름 · 레벨 (데스크톱판의 트레이 아이콘 자리). 누르면 트레이 메뉴
+  // 상태 표시줄: 발바닥 · 이름 · 레벨 + 오늘의 목표 막대 (데스크톱판의 트레이 아이콘 자리). 누르면 트레이 메뉴.
+  // 집중하는 동안은 목표 자리에 모래시계와 남은 시간
   updateStatus() {
     const el = this.statusEl;
     if (!el || !this.host) return;
-    const g = this.host.growth;
+    const H = this.host;
+    const g = H.growth;
     const name = this.settings.get('petName');
     const text = g ? `${name} Lv.${g.level}` : name;
-    const key = `${text}|${this.host.isQuiet()}|${this.host.petVisible()}`;
+    const focus = H.goals ? H.goals.focusInfo() : { on: false };
+    const goal = H.goals && !H.loading ? H.goals.progress() : null;
+    const goalText = goal && goal.on ? `${goal.value.toLocaleString()}/${goal.target.toLocaleString()}` : '';
+    const right = focus.on ? 'f' + H.focusLeftText(focus.left) : goal && goal.on ? `g${goalText}|${Math.round(goal.pct * 100)}|${goal.done}` : '';
+    const key = `${text}|${H.isQuiet()}|${H.petVisible()}|${right}`;
     if (this._status === key) return;
     this._status = key;
     el.empty();
-    const ic = el.createSpan({ cls: 'kitcommit-status-icon' });
-    const svg = new DOMParser().parseFromString(PixelArt.svg(this.host.isQuiet() ? 'bellOff' : 'paw', 14).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '), 'image/svg+xml').documentElement;
-    ic.appendChild(document.importNode(svg, true));
+    const pix = (name, size) => {
+      const svg = new DOMParser().parseFromString(PixelArt.svg(name, size).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '), 'image/svg+xml').documentElement;
+      return document.importNode(svg, true);
+    };
+    el.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix(H.isQuiet() && !focus.on ? 'bellOff' : 'paw', 14));
     el.createSpan({ text });
-    el.setAttribute('aria-label', this.host.T.t('obs.statusTip'));
+    if (focus.on) {
+      const f = el.createSpan({ cls: 'vaultpet-status-focus' });
+      f.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix('hourglass', 12));
+      f.createSpan({ text: H.focusLeftText(focus.left) });
+    } else if (goal && goal.on) {
+      const box = el.createSpan({ cls: 'vaultpet-status-goal' + (goal.done ? ' is-done' : '') });
+      if (goal.done) box.createSpan({ cls: 'kitcommit-status-icon' }).appendChild(pix('check', 12));
+      else box.createSpan({ cls: 'vaultpet-status-bar' }).createSpan().style.setProperty('--vaultpet-goal', `${Math.round(goal.pct * 100)}%`);
+      box.createSpan({ text: goalText });
+    }
+    el.setAttribute('aria-label', `${H.goalLine()}\n${H.T.t('obs.statusTip')}`);
   }
 
   // 언어가 바뀌면 탭 이름·리본 설명을 다시

@@ -11,6 +11,7 @@ const FIRST_TOKENS_PER_COIN = 5; // 그 안에서는 5자 = 1코인
 const AFTER_TOKENS_PER_COIN = 25; // 그 뒤로는 25자 = 1코인
 // 처음 만났을 때 쥐여 주는 용돈
 const WELCOME_COINS = 1_000;
+const TASK_COINS = 5; // 끝낸 할 일 하나에 (1.5.0)
 
 // 하루 쓴 글자 → 그날 번 코인
 function coinsForDay(tokens) {
@@ -21,10 +22,15 @@ function coinsForDay(tokens) {
 
 // sinceMs 이후 쓴 글자로 번 코인. usage 의 시간 버킷을 날짜별로 묶어 하루씩 계단을 적용한다.
 // 시작 시각이 걸친 날은 그 시각이 속한 시간 버킷부터만 센다 (usage.eachBucket 과 같은 기준. 기록이 시간 단위라 이게 가장 촘촘하다)
+// 끝낸 할 일 하나 = 5코인 (1.5.0). 글자 계단과 따로 더한다
 function coinsSince(usage, sinceMs = 0) {
   const days = {};
-  for (const [key, b] of usage.eachBucket(sinceMs)) days[key.slice(0, 10)] = (days[key.slice(0, 10)] || 0) + (b.c || 0);
-  return Object.values(days).reduce((a, t) => a + coinsForDay(t), 0);
+  let tasks = 0;
+  for (const [key, b] of usage.eachBucket(sinceMs)) {
+    days[key.slice(0, 10)] = (days[key.slice(0, 10)] || 0) + (b.c || 0);
+    tasks += (b.t && b.t.done) || 0;
+  }
+  return Object.values(days).reduce((a, t) => a + coinsForDay(t), 0) + tasks * TASK_COINS;
 }
 
 // 아이콘은 따로 없다. key 와 같은 이름의 도트가 renderer/pixelart.js 에 있다.
@@ -1254,4 +1260,4 @@ class Shop {
   }
 }
 
-module.exports = { STAR_FURS, isStar, furItemKey, PREMIUM_FOODS: FOODS.filter((x) => x.premium).map((x) => x.key), SET_MOTIONS, RENAMED_MOTIONS, duplicateKeys, kindOfKey, blankStats, addStat, COSTUME_SLOTS, COSTUME_TABS, outfitList, fillOf, Shop, ACCESSORIES, FOODS, TOYS, MOTIONS, MOTION_SLOTS, BASIC_POSES, FREE_MOTIONS, find, slotOf, slotsOf, coinsForDay, coinsSince, WELCOME_COINS, SLOT_PRICE };
+module.exports = { STAR_FURS, isStar, furItemKey, PREMIUM_FOODS: FOODS.filter((x) => x.premium).map((x) => x.key), SET_MOTIONS, RENAMED_MOTIONS, duplicateKeys, kindOfKey, blankStats, addStat, COSTUME_SLOTS, COSTUME_TABS, outfitList, fillOf, Shop, ACCESSORIES, FOODS, TOYS, MOTIONS, MOTION_SLOTS, BASIC_POSES, FREE_MOTIONS, find, slotOf, slotsOf, coinsForDay, coinsSince, WELCOME_COINS, TASK_COINS, SLOT_PRICE };

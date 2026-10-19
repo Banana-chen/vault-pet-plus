@@ -3,6 +3,7 @@ const canvas = document.getElementById('pet');
 const bubbleEl = document.getElementById('bubble');
 const loadingEl = document.getElementById('loading');
 const hintEl = document.getElementById('playhint');
+const focusEl = document.getElementById('focus'); // [옵시디언 1.5.0] 집중 시간: 머리 위 남은 시간
 const fieldEl = document.getElementById('field');
 const fctx = fieldEl.getContext('2d');
 const sprite = new PetSprite.PetRenderer(canvas);
@@ -125,6 +126,33 @@ pet.onLoading((p) => {
   placeOverlays();
 });
 
+// [옵시디언 1.5.0] 집중 시간. 호스트는 끝 시각만 보내고, 남은 시간은 여기서 1초마다 센다
+let focusEnd = 0;
+let focusTimer = null;
+function tickFocus() {
+  if (!focusEl) return;
+  const left = focusEnd - Date.now();
+  if (!focusEnd || left <= 0) {
+    focusEl.hidden = true;
+    clearInterval(focusTimer);
+    focusTimer = null;
+    return;
+  }
+  const s = Math.ceil(left / 1000);
+  focusEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  if (focusEl.hidden) {
+    focusEl.hidden = false;
+    placeOverlays();
+  }
+}
+if (pet.onFocus)
+  pet.onFocus((f) => {
+    focusEnd = f && f.end ? f.end : 0;
+    clearInterval(focusTimer);
+    focusTimer = focusEnd ? setInterval(tickFocus, 1000) : null;
+    tickFocus();
+  });
+
 pet.onAction((a) => {
   // 모션을 건너뛰었으면 미뤄 둔 코스튬을 바로 입힌다 (가려 줄 모션이 없으니 기다릴 이유가 없다)
   if (!playAction(a)) flushWear();
@@ -167,9 +195,10 @@ const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuest
 const BUBBLE_ICON = {
   grow: 'sparkle', achieve: 'medal', item: 'gift', quest: 'check', attend: 'fire', retro: 'medal',
   treat: 'ricebowl', fed: 'ricebowl', hungry: 'ricebowl', lunch: 'ricebowl', dinner: 'ricebowl',
-  notify: 'bang', rest: 'pillow', late: 'moon', tip: 'claudethink',
+  notify: 'bang', rest: 'pillow', late: 'moon', tip: window.KC_OBSIDIAN ? 'bulb' : 'claudethink',
+  goal: 'star', focus: 'hourglass', // [옵시디언 1.5.0] 하루 목표 · 집중 시간
 };
-const REWARD = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro']);
+const REWARD = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro', 'goal']);
 const CHATTY = new Set(['chatter', 'poke', 'tip', 'memory', 'crave', 'reply']); // 'stop'(답 끝남)은 꼭 보여 줘야 해서 뺐다 (2026-09-29)
 // main 이 수다 상한을 조절하려고 끝난 걸 알고 싶어 하는 말풍선 (2초 안에 눌러 닫으면 귀찮다는 뜻)
 const TRACKED = new Set(['chatter', 'tip', 'memory', 'crave', 'reply']);
@@ -1634,16 +1663,23 @@ pet.onTreat(({ key }) => {
 // 아무것도 안 떠 있으면 크기를 재지 않는다 (재는 것만으로 레이아웃 계산이 돈다)
 function placeOverlays() {
   if (catX == null) return;
-  if (bubbleEl.hidden && hintEl.hidden && loadingEl.hidden) return;
+  const focusOn = !!focusEl && !focusEl.hidden;
+  if (bubbleEl.hidden && hintEl.hidden && loadingEl.hidden && !focusOn) return;
   const headPx = (PetSprite.GRID - sprite.headTop()) * scale + catLift;
   const keepInX = (el) => {
     const half = el.offsetWidth / 2 + 6;
     return Math.round(Math.max(half, Math.min(window.innerWidth - half, catX)));
   };
-  const hintUp = hintEl.hidden ? 0 : 24;
+  let hintUp = hintEl.hidden ? 0 : 24;
   if (!hintEl.hidden) {
     hintEl.style.bottom = `${Math.round(headPx + 8)}px`;
     hintEl.style.left = `${keepInX(hintEl)}px`;
+  }
+  // 집중 시간 알약은 머리 바로 위 (놀이 안내가 있으면 그 위). 말풍선은 그보다 위로
+  if (focusOn) {
+    focusEl.style.bottom = `${Math.round(headPx + 6 + hintUp)}px`;
+    focusEl.style.left = `${keepInX(focusEl)}px`;
+    hintUp += 22;
   }
   if (!bubbleEl.hidden) {
     // 높이 들어 올려서 머리 위에 자리가 없으면 고양이 발 밑으로 내린다. 그래도 모자라면 화면 안에 붙여 둔다

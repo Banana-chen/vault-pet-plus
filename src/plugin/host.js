@@ -2,7 +2,8 @@
 // 창·트레이·IPC 로 하던 일을 옵시디언의 오버레이(펫 무대)·상태 표시줄·메뉴·iframe 다리로 옮겼다.
 // 성장·상점·퀘스트·업적·친구·보물·게이지는 core/* (데스크톱판과 같은 코드)가 그대로 한다.
 const { Menu, Notice, setIcon } = require('obsidian');
-const { computeGrowth, xpOf, levelOf, FURS, EAR_SHAPES, STAGES, foldStage, CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION } = require('../core/growth');
+const { computeGrowth, xpOf, levelOf, FURS, EAR_SHAPES, STAGES, foldStage, CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION, XP_PER_TASK } = require('../core/growth');
+const { Goals, cleanGoal, GOAL_COINS, GOAL_XP, FOCUS_LENGTHS } = require('../core/goals');
 const { Brain } = require('../core/brain');
 const { Gamify } = require('../core/gamify');
 const { SET_MOTIONS, COSTUME_SLOTS, outfitList, fillOf, Shop, ACCESSORIES, FOODS, TOYS, MOTIONS, MOTION_SLOTS, slotOf, find: findItem } = require('../core/shop');
@@ -13,6 +14,7 @@ const { Friends, FRIENDS, FRIEND_STEPS } = require('../core/friends');
 const { Gauge } = require('../core/gauge');
 const { Craving } = require('../core/craving');
 const { recap, cleanCardPrefs } = require('../core/recap');
+const { TASK_COINS } = require('../core/shop');
 const { dayOf } = require('../core/usage');
 const { Strings, LANGS, PERSONAS } = require('../kit/i18n');
 const PixelArt = require('../kit/pixelart');
@@ -41,8 +43,9 @@ const FORTUNE_COINS = 50;
 // 기본 '냠냠' 대신 자기 말을 하는 간식
 const PREMIUM_TALK = new Set(['fortuneCookie', 'mysteryBox', 'inviteCookie']);
 const MOTION_HOLD = 5 * MIN;
-const ALWAYS = new Set(['notify']);
-const REWARD = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro']);
+// focus = 집중 시간 시작 · 끝 (집중하는 동안은 방해 금지라, 그래도 꼭 보여야 하는 말) · goal = 하루 목표를 채웠다
+const ALWAYS = new Set(['notify', 'focus']);
+const REWARD = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro', 'goal']);
 // 말풍선 상한 (데스크톱판 0.4.0). 수다 등급은 시간당 1번, 그리고 꼭 필요하지 않은 말풍선(COUNTED)이 지난 한 시간에
 // 3번 이상이었으면 수다는 건너뛴다. 수다를 2초 안에 눌러 닫는 일이 세 번 이어지면 수다를 3시간 쉰다
 const CHATTY_KINDS = new Set(['chatter', 'tip', 'memory', 'crave', 'reply']);
@@ -52,7 +55,7 @@ const COUNTED_PER_HOUR = 3;
 const QUICK_DISMISS_MS = 2000;
 const CHATTER_MUTE_MS = 3 * HOUR_MS;
 // 오늘의 소식에 남길 것 (못 띄운 것도 남는다): 레벨 · 업적 · 보상 · 퀘스트 · 출석 · 친구 · 보물
-const NEWS_KINDS = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro', 'event']);
+const NEWS_KINDS = new Set(['grow', 'achieve', 'item', 'quest', 'attend', 'retro', 'event', 'goal', 'focus']);
 const NEWS_MAX = 40;
 // 업적 · 보상은 한 말풍선으로 묶는다. 마지막 업적 뒤 2초, 처음 것 뒤 늦어도 10초에 한 번에
 const NEWS_WAIT = 2000;
@@ -84,6 +87,8 @@ const TEMPERS = [
 ];
 const EVENT_LINES = new Set(['eventFetchOut', 'eventFetchBack', 'eventBird', 'eventGuest', 'eventGuestBye', 'eventRare', 'heldLong', 'heldEscape', 'dropHigh', 'huntCatch', 'huntMiss']);
 const RECORD_KEYS = new Set(['whackcat', 'rps', 'rpsStreak', 'trampoline']);
+// 처음 설치한 날 이만큼은 밥 · 배고픔 알림을 쉰다 (만나자마자 '밥 줘' 부터 하지 않게)
+const FIRST_GRACE = 2 * HOUR_MS;
 const scaleStep = (v) => Math.max(1, Math.min(5, Math.round(Number(v) || 3)));
 const gaugeBar = (v) => '■'.repeat(Math.round(v / 10)) + '□'.repeat(10 - Math.round(v / 10)) + ' ' + v;
 
@@ -160,6 +165,7 @@ class KitHost {
       state.set({ stageScheme: STAGES.length });
     }
     this.migrateShop();
+    this.goals = new Goals(state, settings, usage);
     this.gauge = new Gauge(state);
     // 오늘 먹고 싶은 것: 적게 사 먹인 음식일수록 잘 뽑힌다. 사람마다 다르게 처음 만난 시각을 씨앗으로
     this.craving = new Craving(state, {
@@ -174,6 +180,7 @@ class KitHost {
     brain.daily = state.get('brainDaily') || {};
     brain.life = state.get('life') || { hungrySince: 0, fedAt: 0 };
     brain.systemIdle = () => this.plugin.idleSeconds();
+    brain.graceUntil = (state.get('startedAt') || 0) + FIRST_GRACE;
     // 옵시디언판은 타이핑을 hook 처럼 늘 알려 준다 (plugin/main.js 의 onType). 그래서 '같이 쓰는 중'은 타이핑할 때만이다
     brain.lastHookAt = Date.now();
     // 공방에서 만든 옷을 입고 있으면 그 이름 (수다에 가끔 섞인다)
@@ -402,6 +409,7 @@ class KitHost {
     return [
       { title: this.oneStage() ? T.t('tray.statusOne', { name, lv: this.growth.level }) : T.t('tray.status', { name, lv: this.growth.level, stage: this.stageName(this.growth) }), disabled: true },
       { title: T.t('tray.gauges', { food: gaugeBar(g.food) }), disabled: true },
+      { title: this.goalLine(), disabled: true },
       { title: T.t('tray.today', { m: t.c.toLocaleString(), s: t.s, streak: this.gamify.streaks().current }), disabled: true },
     ];
   }
@@ -409,7 +417,11 @@ class KitHost {
   commonMenu() {
     const T = this.T;
     const visible = this.petVisible();
+    const f = this.goals.focusInfo();
     return [
+      f.on
+        ? { title: T.t('focus.menuStop', { left: this.focusLeftText(f.left) }), icon: 'hourglass', click: () => this.focusStop() }
+        : { title: T.t('focus.menuStart'), icon: 'hourglass', submenu: FOCUS_LENGTHS.map((m) => ({ title: T.t('focus.menuLen', { m }), click: () => this.focusStart(m) })) },
       { title: T.t('tray.house'), icon: 'home', click: () => this.openHouse() },
       { title: T.t('tray.quests'), icon: 'scroll', click: () => this.openHouse('quests') },
       { sep: true },
@@ -967,6 +979,106 @@ class KitHost {
     if (this.settings.get('soundEnabled') && !this.isQuiet()) this.send('pet:sound', type);
   }
 
+  // ---------- 하루 목표 · 집중 시간 (1.5.0) ----------
+
+  // "오늘의 목표 120 / 300단어" (메뉴 · 상태 표시줄 설명)
+  goalLine() {
+    const p = this.goals.progress();
+    if (!p.on) return this.T.t('goal.menuOff');
+    const v = { n: p.value.toLocaleString(), target: p.target.toLocaleString() };
+    return this.T.t((p.done ? 'goal.menuDone' : 'goal.menu') + (p.unit === 'words' ? 'W' : 'C'), v);
+  }
+
+  // 오늘 목표를 막 채웠으면 축하하고 코인 · 경험치 (recomputeGrowth 끝 · minuteTick)
+  checkGoal() {
+    if (this.loading || !this.goals) return null;
+    const r = this.goals.check();
+    if (!r) return null;
+    const { T, gamify } = this;
+    gamify.grant(GOAL_XP, { k: r.unit === 'words' ? 'bonus.goalW' : 'bonus.goalC', v: { n: r.target.toLocaleString() } });
+    this.shop.give({ coins: GOAL_COINS });
+    gamify.count('goal');
+    gamify.best('goalStreak', r.streak);
+    this.send('pet:action', this.motionFor('levelup'));
+    this.sound('levelup');
+    const v = { n: r.target.toLocaleString(), coins: GOAL_COINS, d: r.streak };
+    this.bubble(T.line(r.streak > 1 ? 'goalStreak' : r.unit === 'words' ? 'goalDoneW' : 'goalDoneC', v), 'goal', 'home');
+    this.growthSoon();
+    this.plugin.updateStatus();
+    return r;
+  }
+
+  focusLeftText(ms) {
+    const sec = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  }
+
+  // 집중 시간 시작. 그동안은 방해 금지 (끝나면 풀린다). 고양이 머리 위에 남은 시간
+  focusStart(min) {
+    if (this.goals.focusInfo().on) return this.goals.focusInfo();
+    const f = this.goals.focusStart(min);
+    // 집중 때문에 켠 방해 금지면 그 끝 시각을 적어 둔다 (원래 더 길게 켜 둔 방해 금지는 건드리지 않게)
+    const quietBefore = this.state.get('quietUntil') || 0;
+    this.state.set({ quietUntil: Math.max(quietBefore, f.end), focusQuiet: quietBefore < f.end ? f.end : 0 });
+    this.send('pet:quiet', true);
+    this.sendFocus();
+    this.send('pet:action', 'wave');
+    this.bubble(this.T.line('focusStart', { m: f.min }), 'focus');
+    this.afterFocusChange();
+    return this.goals.focusInfo();
+  }
+
+  // 그만두기 (벌은 없다). 집중 때문에 켠 방해 금지만 끈다
+  focusStop(silent = false) {
+    const f = this.goals.focusStop();
+    if (!f) return this.goals.focusInfo();
+    this.endFocusQuiet();
+    this.sendFocus();
+    if (!silent) this.bubble(this.T.line('focusStop'), 'focus');
+    this.afterFocusChange();
+    return this.goals.focusInfo();
+  }
+
+  // 집중 때문에 켠 방해 금지만 끈다 (그사이 사용자가 방해 금지를 다시 정했으면 그대로)
+  endFocusQuiet() {
+    const mine = this.state.get('focusQuiet');
+    if (mine && this.state.get('quietUntil') === mine) this.state.set({ quietUntil: 0 });
+    this.state.set({ focusQuiet: 0 });
+    this.send('pet:quiet', this.isQuiet());
+  }
+
+  afterFocusChange() {
+    this.plugin.updateStatus();
+    if (this.plugin.focusChanged) this.plugin.focusChanged();
+    this.pushHouse();
+  }
+
+  // 끝날 시각이 됐는지 (fastTick). 다 마쳤으면 축하 + 코인 · 경험치 + 쉬자는 말
+  focusTick(now = Date.now()) {
+    const r = this.goals.focusTick(now);
+    if (!r) return null;
+    this.endFocusQuiet();
+    this.sendFocus();
+    if (!r.stale) {
+      this.gamify.grant(r.xp, { k: 'bonus.focus', v: { m: r.min } });
+      this.shop.give({ coins: r.coins });
+      this.gamify.count('focus');
+      this.gamify.count('focusMin', r.min);
+      this.send('pet:action', this.motionFor('levelup'));
+      this.sound('achieve');
+      this.bubble(this.T.line('focusDone', { m: r.min, coins: r.coins }), 'focus', 'home');
+      this.growthSoon();
+    }
+    this.afterFocusChange();
+    return r;
+  }
+
+  // 펫 판에 남은 시간 (끝 시각만 보내고, 초는 펫 판이 센다)
+  sendFocus() {
+    const f = this.goals.focusInfo();
+    this.send('pet:focus', f.on ? { end: f.end, min: f.min } : null);
+  }
+
   recomputeGrowth() {
     if (this.loading) return;
     const { gamify, usage, state, settings } = this;
@@ -1002,6 +1114,7 @@ class KitHost {
     }
     state.set({ lastLevel: g.level, lastStage: g.stageIndex });
     this.pushState();
+    this.checkGoal();
     this.plugin.updateStatus();
     this.pushHouse();
     return before !== null ? g.xp - before : 0;
@@ -1086,7 +1199,9 @@ class KitHost {
       projects: usage.projects(this.plugin.topFolders()),
       stages: STAGES,
       furs: FURS,
-      formula: { CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION },
+      formula: { CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION, XP_PER_TASK, TASK_COINS },
+      goal: this.goals.progress(), // 오늘의 목표 (1.5.0)
+      focus: this.goals.focusInfo(), // 집중 시간 (1.5.0)
       game: gamify.summary(),
       shop: shop.summary(),
       motion,
@@ -1225,6 +1340,7 @@ class KitHost {
     if (this.gauge.get().food < 25 && !this.brain.hungry()) this.brain.getHungry();
     this.checkWorkTier();
     this.toyOfferTick();
+    this.focusTick();
   }
 
   // 기록이 늘었다 (plugin.flush)
@@ -1271,6 +1387,7 @@ class KitHost {
         this.send('pet:config', this.petConfig());
         this.pushState();
         this.send('pet:quiet', this.isQuiet());
+        this.sendFocus();
         if (this.loading) this.send('pet:loading', this.plugin.loadingProgress || 0);
         const visit = this.friends.current();
         if (visit) this.sendFriend(visit);
@@ -1496,6 +1613,13 @@ class KitHost {
       case 'house:onboarded':
         state.set({ onboarded: true });
         return this.housePayload();
+      // 집중 시간 (1.5.0): 하우스 홈의 버튼
+      case 'focus:start':
+        this.focusStart(a[0]);
+        return this.housePayload();
+      case 'focus:stop':
+        this.focusStop();
+        return this.housePayload();
       // '새로 생긴 것' 창을 봤다 (하우스가 창을 여는 순간 부른다. 설정에서 다시 볼 수는 있다)
       case 'house:whats-new-seen':
         state.set({ whatsNew: null });
@@ -1698,6 +1822,15 @@ class KitHost {
       allowed.outfitSaves = saves.map((o) => (o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).filter(([s, k]) => COSTUME_SLOTS.includes(s) && typeof k === 'string')) : null));
     }
     if ('scale' in allowed) allowed.scale = scaleStep(allowed.scale);
+    // 하루 목표: { on, unit: words | chars, target } 만 (core/goals.js 가 거른다). 집중 시간은 15 · 25 · 50분 중 하나
+    if ('goal' in allowed) {
+      allowed.goal = cleanGoal(allowed.goal, allowed.language || settings.get('language'));
+      if (!allowed.goal) delete allowed.goal;
+    }
+    if ('focusMin' in allowed) {
+      if (FOCUS_LENGTHS.includes(Number(allowed.focusMin))) allowed.focusMin = Number(allowed.focusMin);
+      else delete allowed.focusMin;
+    }
     if (!settings.get('devUnlocked')) delete allowed.devMode;
     if ('petName' in allowed) allowed.petName = String(allowed.petName).trim().slice(0, 12) || DEFAULT_SETTINGS.petName;
     if ('language' in allowed && !LANGS.includes(allowed.language)) delete allowed.language;
@@ -1782,6 +1915,8 @@ class KitHost {
       this.state.set({ lastLevel: null, lastStage: null });
       this.recomputeGrowth();
     }
+    // 목표를 낮추면 오늘 이미 채웠을 수 있다
+    if ('goal' in allowed) this.checkGoal();
     this.plugin.updateStatus();
     const payload = this.housePayload();
     for (const h of this.houses) if (h !== from) h.emit('house:data', payload);

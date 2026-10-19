@@ -40,14 +40,16 @@ const FURS = [
 // 그림은 kit/sprite.js 의 EARS, 이름은 i18n 'ear.<key>' (키가 셋 다 같아야 한다)
 const EAR_SHAPES = ['perk', 'round', 'pointy', 'small', 'fold', 'outtilt', 'intilt', 'darktip', 'whitetip', 'tnr', 'mismatch', 'lynx', 'fox'];
 
-// 경험치 = 쓴 글자 ÷ 10 + 링크 × 10 + 새 노트 × 20 + 글쓰기 세션 × 30 (+ 업적·퀘스트·출석 보너스)
+// 경험치 = 쓴 글자 ÷ 10 + 링크 × 10 + 새 노트 × 20 + 글쓰기 세션 × 30 + 끝낸 할 일 × 5 (+ 업적·퀘스트·출석·목표·집중 보너스)
+// 끝낸 할 일(1.5.0): 글을 길게 안 쓰고 할 일 위주로 옵시디언을 쓰는 사람도 고양이를 키울 수 있게. 노트마다 최고 기록이라 껐다 켜기로는 안 오른다
 const CHARS_PER_XP = 10;
 const XP_PER_LINK = 10;
 const XP_PER_NOTE = 20;
 const XP_PER_SESSION = 30;
+const XP_PER_TASK = 5;
 
 function xpOf(t) {
-  return Math.floor((t.c || 0) / CHARS_PER_XP) + (t.l || 0) * XP_PER_LINK + (t.n || 0) * XP_PER_NOTE + (t.s || 0) * XP_PER_SESSION;
+  return Math.floor((t.c || 0) / CHARS_PER_XP) + (t.l || 0) * XP_PER_LINK + (t.n || 0) * XP_PER_NOTE + (t.s || 0) * XP_PER_SESSION + (t.k || 0) * XP_PER_TASK;
 }
 
 // 최대 레벨 (2026-09-24 확정). 그 뒤로 쌓이는 경험치는 별(프레스티지)이 된다
@@ -113,4 +115,4 @@ function computeGrowth(since, usage, bonusXp = () => 0) {
   };
 }
 
-module.exports = { FURS, EAR_SHAPES, STAGES, STAGE_FOLD, foldStage, computeGrowth, xpOf, levelOf, starsOf, MAX_LEVEL, XP_AT_MAX, STAR_XP, STAR_COINS, CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION };
+module.exports = { FURS, EAR_SHAPES, STAGES, STAGE_FOLD, foldStage, computeGrowth, xpOf, levelOf, starsOf, MAX_LEVEL, XP_AT_MAX, STAR_XP, STAR_COINS, CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION, XP_PER_TASK };

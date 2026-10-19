@@ -1,7 +1,8 @@
 // 옵시디언 사용량을 폴더·시간 단위로 집계한다. 킷커밋(데스크톱)의 usage.js 가 Claude Code 대화 기록을 읽던 자리다.
 //
-// 세는 것 (시간 버킷 하나 = { c, l, n, s, v, e, t })
+// 세는 것 (시간 버킷 하나 = { c, w, l, n, s, v, e, t })
 //  c : 새로 쓴 글자 수 (공백·마크다운 기호·URL 은 빼고. 코드도 글쓰기라 센다)
+//  w : 새로 쓴 단어 수 (1.5.0. 영어 하루 목표가 단어로 센다. 중국어·일본어 글자는 한 글자 = 한 단어)
 //  l : 새로 건 링크 수 ([[위키 링크]] · ![[임베드]] · [마크다운](링크))
 //  n : 새 노트 수 (10자 넘게 쓴 노트를 한 번만)
 //  s : 글쓰기 세션 수 (30분 넘게 쉬었다가 다시 쓰기 시작하면 하나)
@@ -28,8 +29,10 @@ const FLUSH_BUDGET = { c: 6000, l: 60, n: 10 };
 const OFFLINE_BUDGET = { c: 20000, l: 300, n: 40 };
 const SESSION_GAP = 30 * MIN;
 const FEATURES = ['tag', 'task', 'done', 'head', 'embed', 'callout'];
-// 파일 기록 한 줄: [최고 글자, 최고 링크, mtime, 새 노트로 셌나, ...FEATURES 의 최고값]
+// 파일 기록 한 줄: [최고 글자, 최고 링크, mtime, 새 노트로 셌나, ...FEATURES 의 최고값, 최고 단어]
 const F0 = 4;
+// 최고 단어는 1.5.0 에 맨 뒤에 붙였다. 그 전 기록에는 없어서, 처음 볼 때는 기준만 잡는다 (예전 글이 한꺼번에 단어로 세지지 않게)
+const W_AT = F0 + FEATURES.length;
 // 지운 노트의 기록을 이만큼까지 남겨 둔다. 같은 자리에 다시 생기면(휴지통 복원·동기화·git) 이어서 센다
 const GONE_MAX = 3000;
 
@@ -51,7 +54,16 @@ function stripFrontmatter(text) {
 
 const EXCALIDRAW_RE = /(^|\n)excalidraw-plugin\s*:/;
 const BLOB_LINE = 1000; // 코드 블록 안에서 이보다 긴 한 줄은 데이터 덩어리로 보고 세지 않는다
-const EMPTY = () => ({ chars: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
+const EMPTY = () => ({ chars: 0, words: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
+
+// 단어 수. 띄어 쓰는 말(영어·한국어…)은 글자·숫자 덩어리 하나가 한 단어, 중국어·일본어 글자는 한 글자가 한 단어 (옵시디언 단어 세기와 비슷하게)
+const CJ_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/g;
+const WORD_RE = /[\p{L}\p{N}]+(?:['’._-][\p{L}\p{N}]+)*/gu;
+function countWords(text) {
+  const s = String(text || '');
+  const cj = (s.match(CJ_RE) || []).length;
+  return cj + (s.replace(CJ_RE, ' ').match(WORD_RE) || []).length;
+}
 
 // 노트 한 개를 잰다. 글자·링크와 옵시디언 기능(태그·할 일·제목·임베드·콜아웃) 개수
 function measure(text) {
@@ -81,12 +93,14 @@ function measure(text) {
   const done = linkable.match(/^\s*[-*+] \[[xX]\]/gm) || [];
   const heads = linkable.match(/^#{1,6} \S/gm) || [];
   const callouts = linkable.match(/^>\s*\[![\w-]+\]/gm) || [];
-  const chars = (text2 + '\n' + code.join('\n'))
+  const plain = (text2 + '\n' + code.join('\n'))
     .replace(/\]\([^)\n]*\)/g, ']')
     .replace(/data:[a-z]+\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, '')
-    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '')
-    .replace(/[\s#*_>`~=|[\]!-]+/g, '').length;
-  return { chars, links: wiki.length + md.length, tag: tags.length, task: tasks.length, done: done.length, head: heads.length, embed: embeds.length, callout: callouts.length };
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '');
+  const chars = plain.replace(/[\s#*_>`~=|[\]!-]+/g, '').length;
+  // 할 일 표시(- [ ] · - [x])의 x 는 단어가 아니다
+  const words = countWords(plain.replace(/^\s*[-*+] \[[ xX]\]/gm, ' '));
+  return { chars, words, links: wiki.length + md.length, tag: tags.length, task: tasks.length, done: done.length, head: heads.length, embed: embeds.length, callout: callouts.length };
 }
 
 // 경로 토막 해시 (FNV 두 개를 이어 붙인다)
@@ -176,19 +190,25 @@ class UsageTracker extends EventEmitter {
     const counted = prev(3);
     const fresh = [Math.max(prev(0), m.chars), Math.max(prev(1), m.links), opts.mtime || prev(2), counted || (m.chars >= NOTE_MIN_CHARS ? 1 : 0)];
     FEATURES.forEach((k, i) => (fresh[F0 + i] = Math.max(prev(F0 + i), m[k] || 0)));
+    // 단어 기록이 없는 예전 기록(1.4 이하)은 이번에 기준만 잡는다. 기록 자체가 없던 새 노트는 0 에서 센다
+    const hadWords = !f || f[W_AT] !== undefined;
+    fresh[W_AT] = Math.max(hadWords ? prev(W_AT) : 0, m.words || 0);
     if (opts.baseline) {
       this.d.files[key] = fresh;
-      return { dc: 0, dl: 0, dn: 0, skipped: { c: 0, l: 0 } };
+      return { dc: 0, dw: 0, dl: 0, dn: 0, skipped: { c: 0, l: 0, w: 0 } };
     }
     let dc = Math.max(0, m.chars - prev(0));
     let dl = Math.max(0, m.links - prev(1));
+    let dw = hadWords ? Math.max(0, (m.words || 0) - prev(W_AT)) : 0;
     // 붙여넣기·끌어다 놓기로 들어온 글은 세지 않는다 (최고 기록은 올라간다)
-    const skipped = { c: 0, l: 0 };
+    const skipped = { c: 0, l: 0, w: 0 };
     if (opts.skip) {
       skipped.c = Math.min(dc, Math.max(0, opts.skip.c || 0));
       skipped.l = Math.min(dl, Math.max(0, opts.skip.l || 0));
+      skipped.w = Math.min(dw, Math.max(0, opts.skip.w || 0));
       dc -= skipped.c;
       dl -= skipped.l;
+      dw -= skipped.w;
     }
     if (opts.cap != null) dc = Math.min(dc, opts.cap);
     if (opts.linkCap != null) dl = Math.min(dl, opts.linkCap);
@@ -202,6 +222,8 @@ class UsageTracker extends EventEmitter {
       b.l -= dl;
       b.n -= dn;
     }
+    // 한 단어는 적어도 한 글자다. 글자에 걸린 상한·몫(붙여넣기·한꺼번에 바뀐 노트)이 단어에도 그대로 걸리게
+    dw = Math.min(dw, dc);
     const feat = {};
     FEATURES.forEach((k, i) => {
       const d = Math.max(0, (m[k] || 0) - prev(F0 + i));
@@ -209,15 +231,16 @@ class UsageTracker extends EventEmitter {
     });
     if (dn && DAILY_RE.test(path)) feat.daily = 1;
     this.d.files[key] = fresh;
-    if (dc || dl || dn || Object.keys(feat).length) this.add(path, when, dc, dl, dn, feat, opts);
-    return { dc, dl, dn, feat, skipped };
+    if (dc || dl || dn || Object.keys(feat).length) this.add(path, when, dc, dl, dn, feat, opts, dw);
+    return { dc, dw, dl, dn, feat, skipped };
   }
 
-  add(path, when, dc, dl, dn, feat, opts = {}) {
+  add(path, when, dc, dl, dn, feat, opts = {}, dw = 0) {
     const fk = folderKey(folderOf(path));
     const t = when.getTime();
     const { proj, b } = this.bucket(fk, when);
     b.c += dc;
+    if (dw) b.w = (b.w || 0) + dw;
     b.l += dl;
     b.n += dn;
     if (dc || dl || dn) {
@@ -327,16 +350,18 @@ class UsageTracker extends EventEmitter {
     }
   }
 
-  // sinceMs 이후의 합계
+  // sinceMs 이후의 합계. w = 단어, k = 끝낸 할 일 (1.5.0 부터 경험치·코인이 된다)
   totals(sinceMs = 0) {
-    const sum = { c: 0, l: 0, n: 0, s: 0, v: 0, e: 0 };
+    const sum = { c: 0, w: 0, l: 0, n: 0, s: 0, v: 0, e: 0, k: 0 };
     for (const [, b] of this.eachBucket(sinceMs)) {
       sum.c += b.c;
+      sum.w += b.w || 0;
       sum.l += b.l;
       sum.n += b.n;
       sum.s += b.s;
       sum.v += b.v || 0;
       sum.e += b.e || 0;
+      sum.k += (b.t && b.t.done) || 0;
     }
     return sum;
   }
@@ -359,7 +384,7 @@ class UsageTracker extends EventEmitter {
     const index = {};
     for (let i = n - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const row = { day: dayOf(d), c: 0, l: 0, n: 0, s: 0, e: 0 };
+      const row = { day: dayOf(d), c: 0, w: 0, l: 0, n: 0, s: 0, e: 0, k: 0 };
       index[row.day] = row;
       out.push(row);
     }
@@ -367,6 +392,8 @@ class UsageTracker extends EventEmitter {
       const row = index[key.slice(0, 10)];
       if (row) {
         row.c += b.c;
+        row.w += b.w || 0;
+        row.k += (b.t && b.t.done) || 0;
         row.l += b.l;
         row.n += b.n;
         row.s += b.s;
@@ -454,6 +481,6 @@ class UsageTracker extends EventEmitter {
 }
 
 module.exports = {
-  UsageTracker, measure, pathKey, folderKey, folderOf, dayOf, hourKey, hourKeyToMs,
+  UsageTracker, measure, countWords, pathKey, folderKey, folderOf, dayOf, hourKey, hourKeyToMs,
   LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET, NOTE_MIN_CHARS, SESSION_GAP, ROOT,
 };

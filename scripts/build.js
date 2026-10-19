@@ -17,6 +17,7 @@ const read = (rel) => fs.readFileSync(path.join(src, rel), 'utf8');
 const COMMON = [
   'kit/i18n.js',
   'kit/i18n-obsidian.js',
+  'kit/i18n-goals.js',
   'kit/pixelart.js',
   'kit/sprite.js',
   'kit/friends.js',
@@ -117,6 +118,7 @@ const PET_BODY = `
       <span class="hint"></span>
     </div>
     <div id="loading" class="loading" hidden></div>
+    <div id="focus" class="focus-pill" hidden></div>
     <div id="playhint" class="playhint" hidden></div>
     <canvas id="pet"></canvas>
     <canvas id="field"></canvas>`;
@@ -177,7 +179,7 @@ const walk = (dir) => {
 walk('core');
 walk('plugin');
 // 호스트(플러그인) 쪽에서도 쓰는 화면 코드: 글(i18n + 옵시디언판 글)과 도트 아이콘
-add('kit/i18n', read('kit/i18n.js') + '\n;\n' + read('kit/i18n-obsidian.js'));
+add('kit/i18n', read('kit/i18n.js') + '\n;\n' + read('kit/i18n-obsidian.js') + '\n;\n' + read('kit/i18n-goals.js'));
 add('kit/pixelart', read('kit/pixelart.js'));
 // 화면 코드는 글자로 넣었다가 iframe 에 스크립트로 꽂지 않고, 보통 함수로 묶어 둔다 (옵시디언 자동 리뷰가 런타임 스크립트 주입을 막는다).
 // run(window, document, pet, kind) 를 부르면 iframe 의 window·document 를 쥐고 데스크톱판 화면 코드가 그대로 돈다.

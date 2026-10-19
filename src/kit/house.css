@@ -3692,3 +3692,179 @@ input[type='time'],
     display: none;
   }
 }
+
+/* ---------- [옵시디언 1.5.0] 오늘의 목표 + 집중 시간 (홈 맨 위) ---------- */
+.panel.goal-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, var(--panel)), var(--panel) 60%);
+}
+.panel.goal-hero.done {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--good) 12%, var(--panel)), var(--panel) 60%);
+}
+.panel.goal-hero.off {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.goal-ring {
+  --p: 0;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--soft) 0);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.goal-hero.done .goal-ring {
+  background: conic-gradient(var(--good) 100%, var(--soft) 0);
+}
+.goal-ring::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+.goal-ring > span {
+  position: relative;
+  font-family: var(--pixel);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.goal-hero.done .goal-ring > span {
+  color: var(--good);
+}
+.goal-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.goal-main p {
+  margin: 0;
+}
+.goal-main > .btn {
+  align-self: flex-start;
+}
+.goal-v {
+  font-size: 12px;
+}
+.goal-v b {
+  font-family: var(--pixel);
+  font-size: 22px;
+  line-height: 1.1;
+}
+.goal-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.goal-hero.done .goal-sub {
+  color: var(--good);
+  font-weight: 700;
+}
+.goal-week {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+}
+.goal-week .dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.goal-week .dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--soft);
+}
+.goal-week .dots i.on {
+  background: var(--good);
+}
+.goal-week .dots i:last-child {
+  outline: 1.5px solid color-mix(in srgb, var(--ink) 35%, transparent);
+  outline-offset: 1px;
+}
+.focus-box {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  max-width: 190px;
+  padding-left: 14px;
+  border-left: 1px dashed var(--edge-strong);
+  text-align: center;
+}
+.focus-box .btn {
+  justify-content: center;
+}
+.focus-box small {
+  font-size: 11px;
+  line-height: 1.35;
+}
+.focus-box.on .focus-k {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--pixel);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.muted.small {
+  font-size: 12px;
+}
+
+/* 목표 고르기 창 · 첫 실행의 목표 칩 */
+.goal-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0 14px;
+}
+.goal-pick .seg {
+  display: flex;
+  gap: 6px;
+}
+.goal-pick .chips,
+.chips.w-goal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.goal-pick .chip small,
+.chips.w-goal .chip small {
+  margin-left: 4px;
+}
+.chips.w-goal {
+  margin: 4px 0 10px;
+}
+.goal-modal .nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 좁은 폭(사이드바): 집중 칸은 아래 줄로 */
+@media (max-width: 520px) {
+  .panel.goal-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .panel.goal-hero.off {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .focus-box {
+    grid-column: 1 / -1;
+    max-width: none;
+    padding: 10px 0 0;
+    border-left: 0;
+    border-top: 1px dashed var(--edge-strong);
+  }
+}

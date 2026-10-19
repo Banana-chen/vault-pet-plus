@@ -45,6 +45,7 @@ const { KitHost, STATE_DEFAULTS } = require(path.join(src, 'plugin/host'));
 const I18N = require(path.join(src, 'kit/i18n'));
 globalThis.I18N = I18N;
 require(path.join(src, 'kit/i18n-obsidian'));
+require(path.join(src, 'kit/i18n-goals'));
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -61,7 +62,7 @@ test('measure: 글자·링크·옵시디언 기능을 센다', () => {
   assert.strictEqual(m.embed, 1);
   assert.strictEqual(m.callout, 1);
   assert.ok(m.chars > 10);
-  assert.deepStrictEqual(measure(''), { chars: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
+  assert.deepStrictEqual(measure(''), { chars: 0, words: 0, links: 0, tag: 0, task: 0, done: 0, head: 0, embed: 0, callout: 0 });
 });
 
 test('usage: 처음 본 노트는 기준만 잡고, 늘어난 만큼만 센다 (지웠다 다시 쓰기는 0)', () => {
@@ -815,6 +816,181 @@ test('legacy · 설정: 언어 zh 를 받아들인다', async () => {
   assert.strictEqual(host.T.lang, 'zh');
   await host.onInvoke('house:set', null, { language: 'fr' });
   assert.strictEqual(host.settings.get('language'), 'zh', '모르는 언어는 무시');
+});
+
+/* ── 1.5.0: 단어 · 끝낸 할 일 · 하루 목표 · 집중 시간 ── */
+
+const goalsMod = require(path.join(src, 'core/goals'));
+
+test('measure: 단어를 센다 (중국어 · 일본어 글자는 한 글자 = 한 단어, 할 일 표시 x 는 빼고)', () => {
+  assert.strictEqual(measure("Hello world, it's me — 3 cats").words, 6);
+  assert.strictEqual(measure('今天写作').words, 4);
+  assert.strictEqual(measure('안녕 친구야 반가워').words, 3);
+  assert.strictEqual(measure('- [x] Buy milk\n- [ ] Call mom').words, 4);
+  assert.strictEqual(measure('See [docs](https://example.com/a-b-c) now').words, 3, 'URL 은 단어가 아니다');
+});
+
+test('usage: 단어도 늘어난 만큼만, 예전(1.4) 기록은 처음 볼 때 기준만 잡는다', () => {
+  const u = new UsageTracker();
+  // 1.4 때 만든 기록: 단어 칸이 없다
+  u.observe('a.md', measure('one two three four five'), new Date(), { baseline: true });
+  u.data.files[Object.keys(u.data.files)[0]].length = 10;
+  u.observe('a.md', measure('one two three four five six'), new Date());
+  assert.strictEqual(u.totals().w, 0, '단어 기준이 없던 노트는 이번엔 기준만');
+  assert.ok(u.totals().c > 0, '글자는 그대로 센다');
+  u.observe('a.md', measure('one two three four five six seven eight'), new Date());
+  assert.strictEqual(u.totals().w, 2);
+  // 새 노트는 0 에서 센다
+  u.observe('b.md', measure('alpha beta gamma'), new Date());
+  assert.strictEqual(u.totals().w, 5);
+  // 붙여넣기 몫은 단어에서도 빠진다
+  u.observe('c.md', measure('pasted words here typed'), new Date(), { skip: { c: 17, l: 0, w: 3 } });
+  assert.strictEqual(u.totals().w, 6);
+  assert.strictEqual(u.today().w, 6);
+  assert.strictEqual(u.daily(1)[0].w, 6);
+});
+
+test('growth · coins: 끝낸 할 일 하나 = 5 XP · 5코인, 체크를 풀었다 다시 해도 한 번', () => {
+  assert.strictEqual(growth.xpOf({ k: 3 }), 15);
+  const { host, usage } = makeHost();
+  const xp0 = host.growth.xp;
+  const coins0 = host.shop.wallet().balance;
+  usage.observe('일기/할 일.md', measure('- [ ] a\n- [ ] b'), new Date(), { baseline: true });
+  usage.observe('일기/할 일.md', measure('- [x] a\n- [x] b'), new Date());
+  usage.observe('일기/할 일.md', measure('- [ ] a\n- [ ] b'), new Date());
+  usage.observe('일기/할 일.md', measure('- [x] a\n- [x] b'), new Date());
+  host.onUsage();
+  assert.strictEqual(usage.totals().k, 2);
+  assert.ok(host.growth.xp >= xp0 + 10, 'XP');
+  assert.strictEqual(host.shop.wallet().balance - coins0, 10, '코인');
+});
+
+test('goal: 오늘 목표를 채우면 한 번만 축하 · 코인 100 · XP 50 · 업적 횟수, 상태 표시줄 줄', () => {
+  const { host, usage, sent, settings } = makeHost({ settings: { language: 'en' } });
+  assert.deepStrictEqual(host.goals.config(), { on: true, unit: 'words', target: 300 }, '영어는 300단어');
+  assert.ok(/0 \/ 300 words/.test(host.goalLine()));
+  const coins0 = host.shop.wallet().balance;
+  usage.observe('일기/draft.md', measure('word '.repeat(150)), new Date());
+  host.onUsage();
+  assert.strictEqual(host.goals.progress().done, false);
+  usage.observe('일기/draft.md', measure('word '.repeat(320)), new Date());
+  host.onUsage();
+  const p = host.goals.progress();
+  assert.strictEqual(p.done, true);
+  assert.strictEqual(p.current, 1);
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal'), '말풍선');
+  const coins1 = host.shop.wallet().balance;
+  assert.ok(coins1 - coins0 >= 100, '목표 코인');
+  assert.ok(host.gamify.st.bonus.some((b) => b.why && b.why.k === 'bonus.goalW' && b.xp === 50));
+  assert.strictEqual(host.gamify.st.cnt.goal, 1);
+  const n = sent.filter(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal').length;
+  usage.observe('일기/draft.md', measure('word '.repeat(400)), new Date());
+  host.onUsage();
+  assert.strictEqual(sent.filter(([ch, x]) => ch === 'pet:bubble' && x.kind === 'goal').length, n, '하루 한 번');
+  assert.ok(/reached/.test(host.goalLine()));
+  // 끄면 세지 않는다
+  settings.set({ goal: { on: false, unit: 'words', target: 300 } });
+  assert.strictEqual(host.goals.check(), null);
+});
+
+test('goal: 이어서 채운 날 · 최고 기록, 한국어 기본은 1,000자', () => {
+  const { host, state } = makeHost();
+  assert.deepStrictEqual(host.goals.config(), { on: true, unit: 'chars', target: 1000 });
+  const now = new Date(2026, 9, 19, 12);
+  const d = (n) => goalsMod.GOAL_DEFAULT && require(path.join(src, 'core/usage')).dayOf(new Date(2026, 9, 19 - n));
+  state.set({ goalLog: { [d(1)]: 1000, [d(2)]: 1000, [d(4)]: 1000 } });
+  const s = host.goals.streaks(now);
+  assert.strictEqual(s.current, 2, '오늘 아직이면 어제까지');
+  assert.strictEqual(s.best, 2);
+  assert.strictEqual(s.total, 3);
+});
+
+test('focus: 시작하면 방해 금지 + 머리 위 시간, 끝나면 축하 · 코인 · XP, 방해 금지는 풀린다', () => {
+  const { host, sent, state } = makeHost();
+  const t0 = Date.now();
+  host.focusStart(25);
+  assert.ok(host.isQuiet(), '집중하는 동안 방해 금지');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:focus' && x && x.min === 25));
+  assert.strictEqual(host.focusTick(t0 + 10 * 60_000), null, '아직');
+  const coins0 = host.shop.wallet().balance;
+  const r = host.focusTick(t0 + 25 * 60_000 + 1000);
+  assert.strictEqual(r.min, 25);
+  assert.strictEqual(host.shop.wallet().balance - coins0, 50);
+  assert.ok(!host.isQuiet(), '끝나면 방해 금지도 끝');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'focus' && /25/.test(x.text)), '끝 말풍선은 방해 금지여도 나온다');
+  assert.ok(sent.some(([ch, x]) => ch === 'pet:focus' && x === null));
+  assert.strictEqual(host.gamify.st.cnt.focus, 1);
+  assert.deepStrictEqual(host.goals.focusTotal(), { sessions: 1, minutes: 25 });
+  assert.strictEqual(state.get('focus'), null);
+});
+
+test('focus: 그만두면 벌 없이 끝, 원래 켜 둔 방해 금지는 그대로 · 꺼져 있던 동안 끝난 건 상 없이 접는다', () => {
+  const { host } = makeHost();
+  host.setQuiet(180);
+  host.focusStart(15);
+  host.focusStop();
+  assert.ok(host.isQuiet(), '원래 3시간 방해 금지는 남는다');
+  host.setQuiet(0);
+  const t0 = Date.now();
+  host.focusStart(15);
+  const coins0 = host.shop.wallet().balance;
+  const r = host.focusTick(t0 + 15 * 60_000 + goalsMod.FOCUS_STALE + 60_000);
+  assert.ok(r.stale);
+  assert.strictEqual(host.shop.wallet().balance, coins0, '상 없음');
+  assert.ok(!host.isQuiet());
+  // 집중이 켠 방해 금지는 끝 시각이 어긋나도(시계 · 꺼졌다 켜짐) 집중과 함께 끝난다
+  host.focusStart(25);
+  const f = host.state.get('focus');
+  host.state.set({ focus: { ...f, end: Date.now() - 1000 } });
+  host.focusTick();
+  assert.ok(!host.isQuiet(), '방해 금지도 같이 끝');
+});
+
+test('house:set: 목표 · 집중 시간은 아는 모양만', async () => {
+  const { host, settings } = makeHost({ settings: { language: 'en' } });
+  let p = await host.onInvoke('house:set', null, { goal: { on: true, unit: 'words', target: 500 } });
+  assert.deepStrictEqual(p.goal.target, 500);
+  await host.onInvoke('house:set', null, { goal: { unit: 'pages', target: -3, hack: 1 } });
+  assert.deepStrictEqual(settings.get('goal'), { on: true, unit: 'words', target: 300 }, '모르는 단위 · 이상한 값은 기본으로');
+  await host.onInvoke('house:set', null, { goal: { unit: 'chars', target: 10_000_000 } });
+  assert.strictEqual(settings.get('goal').target, 100000, '상한');
+  await host.onInvoke('house:set', null, { goal: 'lots' });
+  assert.strictEqual(settings.get('goal').unit, 'chars', '객체가 아니면 무시');
+  await host.onInvoke('house:set', null, { focusMin: 50 });
+  assert.strictEqual(settings.get('focusMin'), 50);
+  await host.onInvoke('house:set', null, { focusMin: 7 });
+  assert.strictEqual(settings.get('focusMin'), 50, '15 · 25 · 50 만');
+  p = await host.onInvoke('focus:start', null, 15);
+  assert.strictEqual(p.focus.on, true);
+  assert.strictEqual(p.focus.min, 15);
+  p = await host.onInvoke('focus:stop');
+  assert.strictEqual(p.focus.on, false);
+});
+
+test('첫날: 처음 만난 지 2시간 안에는 밥 알림 · 배고프다 조르기를 쉰다', () => {
+  const { host, sent, settings } = makeHost();
+  const now = new Date();
+  const hh = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  settings.set({ lunchTime: hh(now), dinnerEnabled: false });
+  host.brain.activity(Date.now());
+  host.brain.tick();
+  assert.ok(!sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'lunch'), '첫날 2시간은 조용');
+  // 오래된 사용자는 그대로 알린다
+  const old = makeHost({ state: { startedAt: Date.now() - 3 * 86_400_000 } });
+  old.settings.set({ lunchTime: hh(now), dinnerEnabled: false });
+  old.host.brain.activity(Date.now());
+  old.host.brain.tick();
+  assert.ok(old.sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'lunch'), '평소엔 점심 알림');
+});
+
+test('achievements: 목표 · 집중 업적 11개가 있고 묶음 이름이 세 언어 다 있다', () => {
+  const ids = ACHIEVEMENTS.filter((a) => a.cat === 'focus').map((a) => a.id);
+  assert.strictEqual(ids.length, 11);
+  assert.ok(CATS.includes('focus'));
+  for (const lang of ['ko', 'en', 'zh']) {
+    assert.ok(I18N.UI[lang]['ach.cat.focus'], lang);
+    for (const id of ids) assert.ok(I18N.UI[lang][`ach.${id}.name`] && I18N.UI[lang][`ach.${id}.desc`], `${lang} ${id}`);
+  }
 });
 
 (async () => {
