@@ -203,7 +203,7 @@ const RUN = `function run(window, document, pet, kind) {
 ${wrap(COMMON)}
   if (kind === 'pet') {
 ${wrap(PET)}
-  } else {
+  } else if (kind === 'house') {
 ${wrap(HOUSE)}
   }
 }`;

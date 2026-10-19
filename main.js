@@ -2192,11 +2192,32 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // 'CDP(Chrome DevTools Protocol)' → [전체, 'CDP', 'Chrome DevTools Protocol']. 괄호는 전각도 받는다.
 // 괄호가 가운데 있으면 ('共變數(Covariates)陷阱') 괄호 밖을 이은 이름 · 괄호 안 · 괄호 앞 이름
-function answersOf(title) {
+// 괄호만 보는 이름들. 링크 정리(tidy)는 이것만 쓴다 — 나뉜 제목의 한쪽('Kafka')마다 링크를 권하면 안 되니까
+function namesOf(title) {
   const t = String(title).trim();
   const m = t.match(/^(.+?)\s*[(（]([^()（）]+)[)）]\s*(.*)$/);
   const list = m ? [t, (m[1] + m[3]).trim(), m[2].trim(), m[3] ? m[1].trim() : ''] : [t];
   return [...new Set(list.filter(Boolean))];
+}
+
+// '非同步處理的消費模式：Push vs. Pull' · 'DDD-Single source of truth' → [앞, 뒤].
+// 시각('10:30')과 붙임표 합성어('e-mail' · 'UTF-8' · 'API-first')는 나누지 않는다: 붙임표는 '약어-대문자로 시작하는 말'만
+function partsOf(title) {
+  const t = String(title).trim();
+  const m = t.match(/^(.+?)\s*(?:[：—–]|(?<!\d):(?!\d)|\s-\s)\s*(.+)$/) || t.match(/^([A-Z0-9]{2,6})-([A-Z][a-z].*)$/);
+  return m ? [m[1].trim(), m[2].trim()] : null;
+}
+
+// 세 글자 이하 영문 약어 앞 이름은 분류일 뿐이라 ('DDD') 정답이 아니라 close 로 받는다 (中文 세 글자는 온전한 이름)
+const isLoose = (part) => /^[A-Za-z0-9]{1,3}$/.test(part);
+const looseOf = (title) => (partsOf(title) || []).filter(isLoose);
+
+// 복습 정답: 괄호 이름들 + 나뉜 제목의 앞 · 뒤 (각각 괄호 규칙도 그대로)
+function answersOf(title) {
+  const t = String(title).trim();
+  const parts = partsOf(t);
+  if (!parts) return namesOf(t);
+  return [...new Set([t, ...parts.filter((p) => !isLoose(p)).flatMap(namesOf)])];
 }
 
 // 첫 단락: frontmatter 와 앞쪽 제목줄 · 빈 줄을 건너뛰고 다음 빈 줄까지
@@ -2220,22 +2241,31 @@ const initialsOf = (answers) =>
     .map((a) => a.trim().split(/\s+/).map((w) => w[0].toUpperCase()).join(''))
     .filter((x) => x.length >= 3);
 
-function maskTerms(answers) {
-  const latin = (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
-  return [...new Set([...answers, ...latin])].sort((a, b) => b.length - a.length);
+// 나뉜 제목은 앞 · 뒤 안의 대문자로 시작하는 영어 낱말도 가린다 ('Push vs. Pull' 의 'Push' · 'Pull').
+// 소문자 보통 낱말('source' · 'truth')은 본문 여기저기를 다 지워 버리니 둔다
+function maskTerms(title, answers, loose) {
+  const parts = partsOf(title);
+  const latin = parts
+    ? parts.flatMap((s) => s.match(/\b[A-Z][A-Za-z0-9]{2,}/g) || [])
+    : (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
+  return [...new Set([...answers, ...loose, ...latin])].sort((a, b) => b.length - a.length);
 }
 
 const normalize = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 
 // 정답에는 머리글자도 넣는다 (DLQ 로 답해도 맞다). 머리글자는 문제에서도 가려진다
 function cardOf(title, text) {
-  const answers = [...new Set([...answersOf(title), ...initialsOf(answersOf(title))])];
-  let question = firstParagraph(text);
-  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다
+  const named = answersOf(title);
+  const answers = [...new Set([...named, ...initialsOf(named)])];
+  const loose = looseOf(title);
+  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다.
+  // 한 번에 훑어서(긴 말 먼저) 빈칸마다 먹힌 글자(bites)를 순서대로 남긴다
   const edge = (term) => `${/^[A-Za-z0-9]/.test(term) ? '(?<![A-Za-z0-9])' : ''}${escapeRe(term)}${/[A-Za-z0-9]$/.test(term) ? '(?![A-Za-z0-9])' : ''}`;
-  for (const term of maskTerms(answers)) question = question.replace(new RegExp(edge(term), 'gi'), BLANK);
+  const bites = [];
+  const eat = new RegExp(maskTerms(title, answers, loose).map(edge).join('|'), 'gi');
+  const question = firstParagraph(text).replace(eat, (m) => (bites.push(m), BLANK));
   if (normalize(question.split(BLANK).join('')).length < 4) return null;
-  return { answers, question };
+  return { kind: 'title', answers, loose, question, bites };
 }
 
 /* ── 형광펜 카드 ── */
@@ -2267,7 +2297,7 @@ function clozeOf(text, highlight) {
     .join(BLANK)
     .replace(HIGHLIGHT, '$1')
     .slice(0, QUESTION_MAX);
-  return { answers: [highlight], question };
+  return { answers: [highlight], question, bites: Array(question.split(BLANK).length - 1).fill(highlight) };
 }
 
 function distance(a, b) {
@@ -2280,12 +2310,13 @@ function distance(a, b) {
   return prev[b.length];
 }
 
-// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이)
-function grade(input, answers) {
+// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이 · 분류 이름만 댄 답)
+function grade(input, answers, loose = []) {
   const n = normalize(input);
   if (!n) return 'wrong';
   const keys = answers.map(normalize).filter(Boolean);
   if (keys.includes(n)) return 'right';
+  if (loose.map(normalize).includes(n)) return 'close';
   const close = keys.some((k) => k.length >= 3 && distance(n, k) <= Math.max(1, Math.floor(k.length * 0.4)));
   return close ? 'close' : 'wrong';
 }
@@ -2330,7 +2361,7 @@ const xpFor = (result, hinted) => (result === 'right' ? (hinted ? Math.floor(REV
 // 현지 시각 기준 날짜 번호
 const dayNum = (d = new Date()) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60_000) / 86_400_000);
 
-module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };
+module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, namesOf, looseOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };
 
 };
 
@@ -3801,7 +3832,7 @@ __defs["core/tidy"] = function (module, exports, require) {
 'use strict';
 // [Plus] 링크 정리: 다른 노트의 제목이 글에 나오는데 링크가 아닌 곳을 찾는다.
 // 고치는 건 사용자가 버튼을 눌렀을 때만 (plugin/plus.js). 여기는 찾기와 바꾼 글 만들기뿐이다.
-const { answersOf } = require('./review');
+const { namesOf } = require('./review');
 
 const SNIPPET = 16;
 const UNLINKABLE = /[|#^[\]]/;
@@ -3846,7 +3877,7 @@ const linkText = (target, alias) => (alias === target ? `[[${target}]]` : `[[${t
 function findMentions(notes) {
   const targets = notes
     .filter((n) => !UNLINKABLE.test(n.title))
-    .map((n) => ({ path: n.path, title: n.title, aliases: answersOf(n.title).filter(aliasOk) }))
+    .map((n) => ({ path: n.path, title: n.title, aliases: namesOf(n.title).filter(aliasOk) }))
     .filter((t) => t.aliases.length);
   const out = [];
   for (const note of notes) {
@@ -8349,13 +8380,111 @@ module.exports.default = KitCommitPlugin;
 
 };
 
+__defs["plugin/plus-cat"] = function (module, exports, require) {
+'use strict';
+/*
+ * [Plus] 복습 창 안의 고양이. 펫 창과 같은 그림(kit/sprite.js · motions · 꾸미기)을 숨은 iframe 하나에 불러 쓴다.
+ * iframe 이라 PetSprite 같은 전역 이름이 옵시디언 창과 섞이지 않는다 (frame.js 와 같은 이유). 처음 열 때 한 번만 불러 둔다.
+ */
+const ASSETS = require('./kit-assets');
+
+// 복습 창에서 쓰는 동작 (sprite.js ACTION_LEN · motions.js 의 이름)
+const ACT = { bite: 'nibble', right: 'hooray', wrong: 'melt', close: 'fishthink', hint: 'nibble' };
+const TICK_MS = 70; // 하우스 창 animate() 와 같은 간격
+
+let kit = null;
+
+// 못 불러오면 iframe 을 치우고 던진다 (다음 카드에서 다시 해 본다, iframe 이 쌓이지 않게)
+function loadKit(plugin) {
+  if (kit) return kit;
+  const frame = document.body.createEl('iframe', { cls: 'vpp-kit', attr: { 'aria-hidden': 'true', tabindex: '-1' } });
+  try {
+    const win = frame.contentWindow;
+    ASSETS.run(win, win.document, null, 'sprite');
+    if (!win.PetSprite) throw new Error('PetSprite missing');
+    kit = win.PetSprite;
+  } catch (e) {
+    frame.remove();
+    throw e;
+  }
+  plugin.register(() => {
+    frame.remove();
+    kit = null;
+  });
+  return kit;
+}
+
+class ModalCat {
+  constructor(plugin, parent) {
+    const s = plugin.settings;
+    this.canvas = parent.createEl('canvas', { cls: 'vpp-cat' });
+    this.timer = null;
+    try {
+      const r = new (loadKit(plugin).PetRenderer)(this.canvas);
+      r.setStage((plugin.host.growth && plugin.host.growth.stageKey) || 'cat');
+      r.setAccessory(s.get('accessory') || 'none');
+      r.setFur(s.get('fur'));
+      r.setEars(s.get('ears'));
+      r.setMood('idle');
+      this.r = r;
+      r.frame();
+      // 저전력이면 한 장만 그리고 움직이지 않는다
+      if (!s.get('lowPower')) this.loop();
+    } catch (e) {
+      // 고양이를 못 그려도 문제는 풀 수 있어야 한다
+      console.error('[Vault Pet Plus] cat', e);
+      this.canvas.remove();
+      this.r = null;
+    }
+  }
+
+  loop() {
+    this.r.frame();
+    this.timer = window.setTimeout(() => this.loop(), TICK_MS);
+  }
+
+  act(kind) {
+    if (this.r && ACT[kind]) this.r.play(ACT[kind]);
+  }
+
+  destroy() {
+    window.clearTimeout(this.timer);
+    this.r = null;
+  }
+}
+
+module.exports = { ModalCat };
+
+};
+
 __defs["plugin/plus-modals"] = function (module, exports, require) {
 'use strict';
 // [Plus] 복습 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
 const { Modal, Setting, Notice } = require('obsidian');
-const { grade } = require('../core/review');
+const { grade, BLANK } = require('../core/review');
+const { ModalCat } = require('./plus-cat');
 
 const firstChar = (answers) => [...(answers[1] || answers[0])][0] || '';
+
+// 문제 글. 빈칸은 고양이가 베어 문 자국(.vpp-bite)으로, 글은 setText 로만 넣는다.
+// 제목 카드는 첫 단락에 제목이 안 나와도 먹힌 게 보이게, 맨 위에 먹힌 제목 줄을 둔다
+function drawQuestion(parent, c) {
+  const box = parent.createDiv({ cls: 'vpp-question' });
+  if (c.kind === 'title') box.createDiv({ cls: 'vpp-title' }).createSpan({ cls: 'vpp-bite', text: BLANK });
+  c.question.split(BLANK).forEach((part, i) => {
+    if (i) box.createSpan({ cls: 'vpp-bite', text: BLANK }).style.setProperty('animation-delay', `${0.15 * i}s`);
+    if (part) box.appendText(part);
+  });
+  return box;
+}
+
+// 답을 보여 줄 때 먹은 글자를 제자리에 뱉어 놓는다
+function giveBack(box, bites, result) {
+  box.querySelectorAll('.vpp-bite').forEach((el, i) => {
+    el.setText(bites[i] || '');
+    el.addClass(result === 'right' ? 'vpp-spit' : 'vpp-reveal');
+  });
+}
 
 class ReviewModal extends Modal {
   constructor(app, plugin, cards) {
@@ -8374,10 +8503,13 @@ class ReviewModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass('vpp-modal');
+    // 저전력이면 고양이 · 빈칸 움직임을 다 끈다
+    this.modalEl.toggleClass('vpp-still', !!this.plugin.settings.get('lowPower'));
     this.render();
   }
 
   onClose() {
+    if (this.cat) this.cat.destroy();
     this.contentEl.empty();
     this.plus.finish(this.right, this.i);
   }
@@ -8386,6 +8518,8 @@ class ReviewModal extends Modal {
     const el = this.contentEl;
     el.empty();
     this.hinted = false;
+    if (this.cat) this.cat.destroy();
+    this.cat = null;
     if (!this.cards.length) {
       this.titleEl.setText(this.t('plus.cmdReview'));
       el.createEl('p', { text: this.t('plus.reviewEmpty') });
@@ -8398,8 +8532,11 @@ class ReviewModal extends Modal {
     }
     const c = this.cards[this.i];
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
-    el.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reviewFrom', { name: this.plugin.settings.get('petName') }) });
-    el.createDiv({ cls: 'vpp-question', text: c.question });
+    const stage = el.createDiv({ cls: 'vpp-stage' });
+    this.cat = new ModalCat(this.plugin, stage);
+    this.cat.act('bite');
+    stage.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reviewFrom', { name: this.plugin.settings.get('petName') }) });
+    this.qEl = drawQuestion(el, c);
     const hintEl = el.createEl('p', { cls: 'vpp-hint' });
     const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
     const row = new Setting(el);
@@ -8409,6 +8546,7 @@ class ReviewModal extends Modal {
       b.onClick(() => {
         if (this.hinted || !this.plus.hint()) return;
         this.hinted = true;
+        this.cat.act('hint');
         hintEl.setText(this.t('plus.hintShown', { c: firstChar(c.answers) }));
         b.setDisabled(true);
         input.focus();
@@ -8426,8 +8564,9 @@ class ReviewModal extends Modal {
 
   check(value) {
     const c = this.cards[this.i];
-    const g = grade(value, c.answers);
+    const g = grade(value, c.answers, c.loose);
     if (g !== 'close') return this.settle(g);
+    this.cat.act('close');
     const el = this.contentEl;
     el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
     el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
@@ -8441,6 +8580,8 @@ class ReviewModal extends Modal {
     const xp = this.plus.answer(c.key, result, this.hinted);
     if (result === 'right') this.right++;
     this.xp += xp;
+    giveBack(this.qEl, c.kind === 'title' ? [c.answers[0], ...c.bites] : c.bites, result);
+    this.cat.act(result);
     const el = this.contentEl;
     el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
     el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? `${this.t('plus.right', { xp })} · ${c.answers[0]}` : this.t('plus.wrong', { answer: c.answers[0] }) });
@@ -15866,7 +16007,7 @@ __defs["kit/i18n"] = function (module, exports, require) {
       'ach.todo_10.name': '清單控',
       'ach.todo_10.desc': 'Claude 建立待辦清單 10 次',
       'ach.todo_10.tip': '多步驟的活兒拆成待辦清單，就不會漏掉',
-      'ach.todo_100.name': '覈取方塊上癮',
+      'ach.todo_100.name': '核取方塊上癮',
       'ach.todo_100.desc': 'Claude 建立待辦清單 100 次',
       'ach.web_10.name': '去查檢視',
       'ach.web_10.desc': '網頁搜尋或讀取網頁 10 次',
@@ -28520,7 +28661,7 @@ module.exports.run = function run(window, document, pet, kind) {
       'ach.todo_10.name': '清單控',
       'ach.todo_10.desc': 'Claude 建立待辦清單 10 次',
       'ach.todo_10.tip': '多步驟的活兒拆成待辦清單，就不會漏掉',
-      'ach.todo_100.name': '覈取方塊上癮',
+      'ach.todo_100.name': '核取方塊上癮',
       'ach.todo_100.desc': 'Claude 建立待辦清單 100 次',
       'ach.web_10.name': '去查檢視',
       'ach.web_10.desc': '網頁搜尋或讀取網頁 10 次',
@@ -60542,7 +60683,7 @@ pet.ready();
 })(window);
 
 ;if (window.PetSprite !== undefined) PetSprite = window.PetSprite; if (window.PixelArt !== undefined) PixelArt = window.PixelArt; if (window.I18N !== undefined) I18N = window.I18N; if (window.PetFriends !== undefined) PetFriends = window.PetFriends; if (window.PetToys !== undefined) PetToys = window.PetToys; if (window.PetSound !== undefined) PetSound = window.PetSound; if (window.ToyKit !== undefined) ToyKit = window.ToyKit;
-  } else {
+  } else if (kind === 'house') {
 /* kit/house.js */
 // 하우스 창: 펫 상태, 퀘스트, 업적, 꾸미기, 통계, 설정, 첫 실행 안내.
 // (옵시디언판: 데스크톱판 house.js 사본. 옵시디언 탭 속 iframe 에서 돈다. 바꾼 곳에는 [옵시디언] 표시)

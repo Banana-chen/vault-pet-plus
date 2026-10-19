@@ -95,6 +95,118 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
   background: var(--background-secondary);
   line-height: 1.6;
 }
+.vpp-modal .vpp-title {
+  margin-bottom: var(--size-4-2);
+  font-size: var(--font-ui-large);
+  font-weight: 600;
+}
+.vpp-modal .vpp-title .vpp-bite {
+  min-width: 6em;
+}
+.vpp-kit {
+  display: none;
+}
+.vpp-modal .vpp-stage {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--size-4-2);
+}
+.vpp-modal .vpp-stage p {
+  margin: 0 0 var(--size-4-2);
+}
+.vpp-modal .vpp-cat {
+  width: 96px;
+  height: 96px;
+  flex: none;
+  image-rendering: pixelated;
+}
+/* 고양이가 베어 문 자리: 오른쪽 위에 이빨 자국 두 개, 부스러기가 떨어진다 */
+.vpp-modal .vpp-bite {
+  position: relative;
+  display: inline-block;
+  min-width: 2.6em;
+  color: transparent;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  mask:
+    radial-gradient(circle at 100% 0, #0000 0.5em, #000 0.53em),
+    radial-gradient(circle at calc(100% - 0.8em) 0, #0000 0.32em, #000 0.35em);
+  mask-composite: intersect;
+  animation: vpp-chomp 0.45s steps(3) both;
+}
+.vpp-modal .vpp-bite::after {
+  content: '';
+  position: absolute;
+  right: 0.3em;
+  top: 0.2em;
+  width: 3px;
+  height: 3px;
+  background: var(--interactive-accent);
+  box-shadow: 5px 2px 0 var(--interactive-accent), -4px 4px 0 var(--interactive-accent);
+  animation: vpp-crumbs 0.7s ease-in both;
+  animation-delay: inherit;
+}
+/* 답을 보여 줄 때: 먹은 글자를 제자리에 뱉어 놓는다 */
+.vpp-modal .vpp-bite.vpp-spit,
+.vpp-modal .vpp-bite.vpp-reveal {
+  min-width: 0;
+  padding: 0 0.15em;
+  mask: none;
+  animation: vpp-spit 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.vpp-modal .vpp-bite.vpp-spit {
+  color: var(--text-on-accent);
+  background: var(--color-green);
+}
+.vpp-modal .vpp-bite.vpp-reveal {
+  color: var(--text-normal);
+  background: rgba(var(--color-red-rgb), 0.18);
+}
+.vpp-modal .vpp-bite.vpp-spit::after,
+.vpp-modal .vpp-bite.vpp-reveal::after {
+  display: none;
+}
+@keyframes vpp-chomp {
+  from {
+    mask: none;
+    transform: scale(1.15);
+  }
+}
+@keyframes vpp-crumbs {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(1.2em);
+  }
+}
+@keyframes vpp-spit {
+  from {
+    opacity: 0;
+    transform: scale(0.2) translateY(-0.6em);
+  }
+}
+/* 움직임 줄이기 · 저전력(.vpp-still): 빈칸은 바로 베어 문 모양, 부스러기는 안 보이게 */
+.vpp-modal.vpp-still .vpp-bite,
+.vpp-modal.vpp-still .vpp-bite.vpp-spit,
+.vpp-modal.vpp-still .vpp-bite.vpp-reveal {
+  animation: none;
+}
+.vpp-modal.vpp-still .vpp-bite::after {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vpp-modal .vpp-bite,
+  .vpp-modal .vpp-bite.vpp-spit,
+  .vpp-modal .vpp-bite.vpp-reveal {
+    animation: none;
+  }
+  .vpp-modal .vpp-bite::after {
+    display: none;
+  }
+}
 .vpp-modal .vpp-hint {
   color: var(--text-accent);
   min-height: 1.5em;

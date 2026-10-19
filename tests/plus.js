@@ -24,7 +24,47 @@ test('answersOf: 中文(English) 제목은 전체 · 中文 · English 를 다 �
   assert.deepStrictEqual(review.answersOf('共變數(Covariates)陷阱'), ['共變數(Covariates)陷阱', '共變數陷阱', 'Covariates', '共變數']);
 });
 
+test('answersOf: 콜론 · 대시로 나뉜 제목은 앞 · 뒤도 정답, 너무 짧은 앞 이름(분류)은 정답이 아니다', () => {
+  assert.deepStrictEqual(review.answersOf('非同步處理的消費模式：Push vs. Pull'), ['非同步處理的消費模式：Push vs. Pull', '非同步處理的消費模式', 'Push vs. Pull']);
+  assert.deepStrictEqual(review.answersOf('Kafka: Exactly Once'), ['Kafka: Exactly Once', 'Kafka', 'Exactly Once']);
+  assert.deepStrictEqual(review.answersOf('DDD-Single source of truth'), ['DDD-Single source of truth', 'Single source of truth']);
+  assert.deepStrictEqual(review.looseOf('DDD-Single source of truth'), ['DDD']);
+  // 낱말 안의 붙임표는 나누지 않는다
+  assert.deepStrictEqual(review.answersOf('e-mail 驗證'), ['e-mail 驗證']);
+  assert.deepStrictEqual(review.looseOf('CDP(Chrome DevTools Protocol)'), []);
+  // 대문자 합성어 · 시각은 나누지 않는다
+  for (const t of ['UTF-8', 'COVID-19 notes', 'API-first design', 'SQL-injection', '10:30 會議']) assert.deepStrictEqual(review.answersOf(t), [t], t);
+  // 세 글자 중국어 이름은 분류가 아니라 정답이다
+  assert.deepStrictEqual(review.answersOf('微服務：拆分原則'), ['微服務：拆分原則', '微服務', '拆分原則']);
+  // 콜론 앞에 괄호가 있어도 괄호 규칙은 그대로
+  assert.ok(review.answersOf('CDP(Chrome DevTools Protocol): intro').includes('CDP'));
+});
+
+test('findMentions: 나뉜 제목의 한쪽 이름으로는 링크를 권하지 않는다 (Kafka 마다 링크가 붙지 않게)', () => {
+  const notes = [
+    { path: 'Kafka: Exactly Once.md', title: 'Kafka: Exactly Once', text: '只處理一次' },
+    { path: 'b.md', title: 'b', text: '我們用 Kafka 傳訊息' },
+  ];
+  assert.deepStrictEqual(tidy.findMentions(notes), []);
+});
+
+test('cardOf: 나뉜 제목의 소문자 보통 낱말은 가리지 않는다', () => {
+  const c = review.cardOf('DDD-Single source of truth', '每個資料只有一個 source，DDD 裡常提到');
+  assert.ok(c.question.includes('source'), c.question);
+});
+
 /* ── 카드 ── */
+
+test('cardOf: 나뉜 제목은 앞 · 뒤를 다 가리고, 짧은 분류 이름은 close 로 받는다', () => {
+  const c = review.cardOf('非同步處理的消費模式：Push vs. Pull', '非同步處理的消費模式分成 Push vs. Pull 兩種，Push 由 broker 推，Pull 由 consumer 拉');
+  assert.ok(!/非同步處理的消費模式|Push|Pull/.test(c.question), c.question);
+  assert.strictEqual(review.grade('push vs pull', c.answers, c.loose), 'right');
+  assert.strictEqual(review.grade('非同步處理的消費模式', c.answers, c.loose), 'right');
+  const d = review.cardOf('DDD-Single source of truth', '每個資料只有一個權威來源，DDD 裡常提到');
+  assert.strictEqual(review.grade('SSOT', d.answers, d.loose), 'right');
+  assert.strictEqual(review.grade('ddd', d.answers, d.loose), 'close');
+  assert.ok(!d.question.includes('DDD'), d.question);
+});
 
 test('cardOf: 첫 단락이 문제, 그 안의 정답 글자도 가린다', () => {
   const c = review.cardOf('Juggler協定(Juggler Protocol)', 'Juggler是playwright團隊開發的協定\n它是 CDP 的替代\n\n第二段');
@@ -71,6 +111,15 @@ test('clozeOf: 형광펜이 있는 단락이 문제, 그 말만 가리고 다른
   assert.deepStrictEqual(c.answers, ['熔斷器']);
   assert.strictEqual(c.question, `甲是 ${review.BLANK} 的一種，搭配 退避 使用`);
   assert.strictEqual(review.clozeOf('沒有這個', '熔斷器'), null);
+});
+
+test('bites: 빈칸마다 먹힌 원래 글자를 차례로 (답을 보여 줄 때 그 자리에 돌려놓는다)', () => {
+  const c = review.cardOf('CDP(Chrome DevTools Protocol)', 'cdp 是 Chrome DevTools Protocol 的縮寫，透過 CDP 控制瀏覽器');
+  assert.deepStrictEqual(c.bites, ['cdp', 'Chrome DevTools Protocol', 'CDP']);
+  assert.strictEqual(c.kind, 'title', '제목 카드는 먹힌 제목 줄을 그린다');
+  assert.strictEqual(c.question.split(review.BLANK).length - 1, c.bites.length);
+  const z = review.clozeOf('==退避== 要配 ==退避== 才行', '退避');
+  assert.deepStrictEqual(z.bites, ['退避', '退避']);
 });
 
 test('renameInDeck: 형광펜 카드도 같이 옮긴다', () => {

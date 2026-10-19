@@ -14,11 +14,32 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // 'CDP(Chrome DevTools Protocol)' → [전체, 'CDP', 'Chrome DevTools Protocol']. 괄호는 전각도 받는다.
 // 괄호가 가운데 있으면 ('共變數(Covariates)陷阱') 괄호 밖을 이은 이름 · 괄호 안 · 괄호 앞 이름
-function answersOf(title) {
+// 괄호만 보는 이름들. 링크 정리(tidy)는 이것만 쓴다 — 나뉜 제목의 한쪽('Kafka')마다 링크를 권하면 안 되니까
+function namesOf(title) {
   const t = String(title).trim();
   const m = t.match(/^(.+?)\s*[(（]([^()（）]+)[)）]\s*(.*)$/);
   const list = m ? [t, (m[1] + m[3]).trim(), m[2].trim(), m[3] ? m[1].trim() : ''] : [t];
   return [...new Set(list.filter(Boolean))];
+}
+
+// '非同步處理的消費模式：Push vs. Pull' · 'DDD-Single source of truth' → [앞, 뒤].
+// 시각('10:30')과 붙임표 합성어('e-mail' · 'UTF-8' · 'API-first')는 나누지 않는다: 붙임표는 '약어-대문자로 시작하는 말'만
+function partsOf(title) {
+  const t = String(title).trim();
+  const m = t.match(/^(.+?)\s*(?:[：—–]|(?<!\d):(?!\d)|\s-\s)\s*(.+)$/) || t.match(/^([A-Z0-9]{2,6})-([A-Z][a-z].*)$/);
+  return m ? [m[1].trim(), m[2].trim()] : null;
+}
+
+// 세 글자 이하 영문 약어 앞 이름은 분류일 뿐이라 ('DDD') 정답이 아니라 close 로 받는다 (中文 세 글자는 온전한 이름)
+const isLoose = (part) => /^[A-Za-z0-9]{1,3}$/.test(part);
+const looseOf = (title) => (partsOf(title) || []).filter(isLoose);
+
+// 복습 정답: 괄호 이름들 + 나뉜 제목의 앞 · 뒤 (각각 괄호 규칙도 그대로)
+function answersOf(title) {
+  const t = String(title).trim();
+  const parts = partsOf(t);
+  if (!parts) return namesOf(t);
+  return [...new Set([t, ...parts.filter((p) => !isLoose(p)).flatMap(namesOf)])];
 }
 
 // 첫 단락: frontmatter 와 앞쪽 제목줄 · 빈 줄을 건너뛰고 다음 빈 줄까지
@@ -42,22 +63,31 @@ const initialsOf = (answers) =>
     .map((a) => a.trim().split(/\s+/).map((w) => w[0].toUpperCase()).join(''))
     .filter((x) => x.length >= 3);
 
-function maskTerms(answers) {
-  const latin = (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
-  return [...new Set([...answers, ...latin])].sort((a, b) => b.length - a.length);
+// 나뉜 제목은 앞 · 뒤 안의 대문자로 시작하는 영어 낱말도 가린다 ('Push vs. Pull' 의 'Push' · 'Pull').
+// 소문자 보통 낱말('source' · 'truth')은 본문 여기저기를 다 지워 버리니 둔다
+function maskTerms(title, answers, loose) {
+  const parts = partsOf(title);
+  const latin = parts
+    ? parts.flatMap((s) => s.match(/\b[A-Z][A-Za-z0-9]{2,}/g) || [])
+    : (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
+  return [...new Set([...answers, ...loose, ...latin])].sort((a, b) => b.length - a.length);
 }
 
 const normalize = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 
 // 정답에는 머리글자도 넣는다 (DLQ 로 답해도 맞다). 머리글자는 문제에서도 가려진다
 function cardOf(title, text) {
-  const answers = [...new Set([...answersOf(title), ...initialsOf(answersOf(title))])];
-  let question = firstParagraph(text);
-  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다
+  const named = answersOf(title);
+  const answers = [...new Set([...named, ...initialsOf(named)])];
+  const loose = looseOf(title);
+  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다.
+  // 한 번에 훑어서(긴 말 먼저) 빈칸마다 먹힌 글자(bites)를 순서대로 남긴다
   const edge = (term) => `${/^[A-Za-z0-9]/.test(term) ? '(?<![A-Za-z0-9])' : ''}${escapeRe(term)}${/[A-Za-z0-9]$/.test(term) ? '(?![A-Za-z0-9])' : ''}`;
-  for (const term of maskTerms(answers)) question = question.replace(new RegExp(edge(term), 'gi'), BLANK);
+  const bites = [];
+  const eat = new RegExp(maskTerms(title, answers, loose).map(edge).join('|'), 'gi');
+  const question = firstParagraph(text).replace(eat, (m) => (bites.push(m), BLANK));
   if (normalize(question.split(BLANK).join('')).length < 4) return null;
-  return { answers, question };
+  return { kind: 'title', answers, loose, question, bites };
 }
 
 /* ── 형광펜 카드 ── */
@@ -89,7 +119,7 @@ function clozeOf(text, highlight) {
     .join(BLANK)
     .replace(HIGHLIGHT, '$1')
     .slice(0, QUESTION_MAX);
-  return { answers: [highlight], question };
+  return { answers: [highlight], question, bites: Array(question.split(BLANK).length - 1).fill(highlight) };
 }
 
 function distance(a, b) {
@@ -102,12 +132,13 @@ function distance(a, b) {
   return prev[b.length];
 }
 
-// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이)
-function grade(input, answers) {
+// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이 · 분류 이름만 댄 답)
+function grade(input, answers, loose = []) {
   const n = normalize(input);
   if (!n) return 'wrong';
   const keys = answers.map(normalize).filter(Boolean);
   if (keys.includes(n)) return 'right';
+  if (loose.map(normalize).includes(n)) return 'close';
   const close = keys.some((k) => k.length >= 3 && distance(n, k) <= Math.max(1, Math.floor(k.length * 0.4)));
   return close ? 'close' : 'wrong';
 }
@@ -152,4 +183,4 @@ const xpFor = (result, hinted) => (result === 'right' ? (hinted ? Math.floor(REV
 // 현지 시각 기준 날짜 번호
 const dayNum = (d = new Date()) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60_000) / 86_400_000);
 
-module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };
+module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, namesOf, looseOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };

@@ -1,7 +1,7 @@
 'use strict';
 // [Plus] 링크 정리: 다른 노트의 제목이 글에 나오는데 링크가 아닌 곳을 찾는다.
 // 고치는 건 사용자가 버튼을 눌렀을 때만 (plugin/plus.js). 여기는 찾기와 바꾼 글 만들기뿐이다.
-const { answersOf } = require('./review');
+const { namesOf } = require('./review');
 
 const SNIPPET = 16;
 const UNLINKABLE = /[|#^[\]]/;
@@ -46,7 +46,7 @@ const linkText = (target, alias) => (alias === target ? `[[${target}]]` : `[[${t
 function findMentions(notes) {
   const targets = notes
     .filter((n) => !UNLINKABLE.test(n.title))
-    .map((n) => ({ path: n.path, title: n.title, aliases: answersOf(n.title).filter(aliasOk) }))
+    .map((n) => ({ path: n.path, title: n.title, aliases: namesOf(n.title).filter(aliasOk) }))
     .filter((t) => t.aliases.length);
   const out = [];
   for (const note of notes) {
