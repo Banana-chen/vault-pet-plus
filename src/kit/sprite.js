@@ -169,7 +169,7 @@
     },
   };
 
-  // [Plus] 진화 단계도 같은 도트를 쓴다. 단계마다 커지는 건 plugin/host.js 의 effScale
+  // [Plus] 진화 단계 · 다른 품종은 kit/breeds.js 가 여기에 더한다. 단계마다 커지는 건 plugin/host.js 의 effScale
   STAGE.cat2 = STAGE.cat;
   STAGE.cat3 = STAGE.cat;
 
@@ -1269,6 +1269,9 @@
       if (!g.flash) this.drawAccessory(g);
       // 손님 고양이의 표시 (졸린 눈·불티·볼 빗금 같은 GUEST_FURS 의 mark)
       if (!g.flash && this.fur && this.fur.mark) this.fur.mark.call(this, g, an, g.t);
+      // [Plus] 품종 · 진화 단계 무늬 (kit/breeds.js)
+      const SM = this.stageDef().mark;
+      if (!g.flash && SM) SM.call(this, g, an, g.t);
       // 타자 치는 앞발은 노트북보다 먼저 그린다: 화면 윗변 뒤로 발끝만 빼꼼 보이게
       if (p.prop === 'laptop') {
         this.drawTypingPaws(g);

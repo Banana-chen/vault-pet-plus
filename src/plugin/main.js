@@ -20,6 +20,8 @@ const { PetStage } = require('./stage');
 const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./legacy');
 const { loadSafe, backupDaily, readJson } = require('./safedata');
 const { Plus, importOriginal } = require('./plus');
+const { Collector } = require('./collect');
+const { TameModal } = require('./tame-modal');
 const { ReviewModal, TidyModal } = require('./plus-modals');
 const { SyncBook } = require('./sync');
 const PixelArt = require('../kit/pixelart');
@@ -366,6 +368,9 @@ class KitCommitPlugin extends Plugin {
     this.host = new KitHost(this, { settings: this.settings, state: this.state, usage: this.usage });
     this.host.init();
     this.plus = new Plus(this);
+    this.collect = new Collector(this);
+    // init 은 Collector 전에 돈다. 기록을 읽는 중(loading)이면 다 읽은 뒤에 어차피 다시 계산된다
+    this.host.recomputeGrowth();
     this.stage = null;
     if (legacy) {
       // 선물: 코인은 지갑 보너스로, 기념 코스튬은 옷장에. 새 형식으로 바로 저장해서 두 번 받지 않게 한다
@@ -448,6 +453,13 @@ class KitCommitPlugin extends Plugin {
 
   async openReview() {
     new ReviewModal(this.app, this, await this.plus.dueCards()).open();
+  }
+
+  // 길고양이 길들이기 (바탕화면의 길고양이 · 말풍선을 누르면). 이미 떠났으면 알려만 준다
+  async openTame() {
+    const stray = this.collect.stray();
+    if (!stray) return new Notice(this.host.T.t('tame.gone'));
+    new TameModal(this.app, this, stray, await this.plus.randomCards(3)).open();
   }
 
   openTidy() {

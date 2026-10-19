@@ -190,4 +190,4 @@ class TidyModal extends Modal {
   }
 }
 
-module.exports = { ReviewModal, TidyModal };
+module.exports = { ReviewModal, TidyModal, drawQuestion, giveBack };

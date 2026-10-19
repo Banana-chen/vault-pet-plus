@@ -77,30 +77,35 @@ function starsOf(xp) {
   return { stars, starProgress: into / STAR_XP, starNext: xp >= XP_AT_MAX ? STAR_XP - into : XP_AT_MAX - xp + STAR_XP, starXp: STAR_XP };
 }
 
-// habits = { links, correct, floor }. floor = 이미 올라간 단계 (링크를 지워도 퇴화하지 않는다)
-function stageIndexOf(level, habits) {
-  const h = { links: 0, correct: 0, floor: 0, ...habits };
-  const meets = (n) => level >= n.level && h.links >= n.links && h.correct >= n.correct;
+// [Plus] habits = { links, correct, chars, nights, days, floor }. floor = 이미 올라간 단계 (링크를 지워도 퇴화하지 않는다)
+// 단계 조건(need)은 품종마다 다르다 (core/breeds.js): level 말고 적힌 습관이 다 차야 한다
+const habitKeys = (need) => Object.keys(need).filter((k) => k !== 'level');
+
+function stageIndexOf(level, habits, stages = STAGES) {
+  const h = habits || {};
+  const meets = (n) => level >= n.level && habitKeys(n).every((k) => (h[k] || 0) >= n[k]);
   let i = 0;
-  while (i + 1 < STAGES.length && meets(STAGES[i + 1].need)) i++;
-  return Math.max(i, Math.min(h.floor || 0, STAGES.length - 1));
+  while (i + 1 < stages.length && meets(stages[i + 1].need)) i++;
+  return Math.max(i, Math.min(h.floor || 0, stages.length - 1));
 }
 
 // since = 처음 만난 시각 (state.startedAt). 그 뒤에 쓴 만큼만 자란다. 이전 기록은 누적 기록에서 구경만 한다
 // bonusXp(since) = 업적·퀘스트·출석으로 받은 보너스 경험치
-function computeGrowth(since, usage, bonusXp = () => 0, habits = {}) {
+// [Plus] opts.stages = 데려온 고양이 품종의 단계, opts.adjust = 그 고양이 경험치로 맞추는 값 (core/collection.js 의 xpAdjust)
+function computeGrowth(since, usage, bonusXp = () => 0, habits = {}, opts = {}) {
+  const stages = opts.stages || STAGES;
   const usageXp = xpOf(usage.totals(since));
   const bonus = bonusXp(since);
-  const xp = usageXp + bonus;
+  const xp = Math.max(0, usageXp + bonus + (opts.adjust || 0));
 
   const level = levelOf(xp);
-  const si = stageIndexOf(level, habits);
-  const stage = STAGES[si];
-  const next = STAGES[si + 1];
-  const h = { links: 0, correct: 0, ...habits };
-  // 다음 단계까지: 세 조건 중 가장 덜 찬 것
+  const si = stageIndexOf(level, habits, stages);
+  const stage = stages[si];
+  const next = stages[si + 1];
+  const h = habits || {};
+  // 다음 단계까지: 조건 중 가장 덜 찬 것
   const ratio = (have, need) => (need > 0 ? Math.min(1, have / need) : 1);
-  const progress = next ? Math.min(ratio(level, next.need.level), ratio(h.links, next.need.links), ratio(h.correct, next.need.correct)) : 1;
+  const progress = next ? Math.min(ratio(level, next.need.level), ...habitKeys(next.need).map((k) => ratio(h[k] || 0, next.need[k]))) : 1;
   const st = starsOf(xp);
   // Lv80 에서는 레벨 막대가 다음 별까지를 보여 준다 (화면은 levelFloor~levelCeil 로 막대를 그린다)
   const maxed = level >= MAX_LEVEL;
@@ -122,7 +127,7 @@ function computeGrowth(since, usage, bonusXp = () => 0, habits = {}) {
     nextStageName: next ? next.name : null,
     xpToNext: next ? Math.max(0, 25 * (next.need.level - 1) ** 2 - xp) : 0,
     nextNeed: next ? { ...next.need } : null,
-    have: { links: h.links, correct: h.correct },
+    have: next ? Object.fromEntries(habitKeys(next.need).map((k) => [k, h[k] || 0])) : {},
     progress: Math.max(0, Math.min(1, progress)),
   };
 }

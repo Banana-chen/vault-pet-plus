@@ -5,7 +5,7 @@
  * 노트를 고치는 건 applyTidy 하나뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
  */
 const { TFile } = require('obsidian');
-const { cardOf, cardKeys, parseKey, clozeOf, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum, DAILY_CAP } = require('../core/review');
+const { cardOf, cardKeys, parseKey, clozeOf, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
 const { findMentions, applyLink } = require('../core/tidy');
 const { FOODS } = require('../core/shop');
 const { loadSafe } = require('./safedata');
@@ -64,11 +64,6 @@ class Plus {
     return out;
   }
 
-  // 진화 조건 (core/growth.js 의 habits)
-  habits() {
-    return { links: this.plugin.linkStats().total, correct: this.review().correct, floor: this.plugin.state.get('lastStage') || 0 };
-  }
-
   /* ── 복습 ── */
 
   // 덱을 지금 노트에 맞춘다 (제목 카드 + 형광펜 카드). 읽은 글은 돌려줘서 다시 읽지 않게
@@ -120,10 +115,32 @@ class Plus {
       days: r.days.includes(today) ? r.days : [...r.days, today].slice(-60),
       due: Math.max(0, r.due - 1),
     });
+    if (result === 'right' && !hinted && this.plugin.collect) this.plugin.collect.addCorrect();
     const xp = xpFor(result, hinted);
     if (xp) this.host.gamify.grant(xp, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
     return xp;
+  }
+
+  // 길들이기 문제: 제목 카드 n 장을 아무거나 (상자 · 오늘 할당량과 상관없이)
+  async randomCards(n) {
+    const pool = (await this.notes()).map((note) => ({ note, card: cardOf(note.title, note.text) })).filter((x) => x.card);
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, n).map(({ note, card }) => ({ key: note.path, path: note.path, ...card }));
+  }
+
+  // 길들이기 문제를 풀었다: 경험치와 맞힌 수는 주지만 상자는 건드리지 않는다
+  practice(result) {
+    if (result !== 'right') return 0;
+    const r = this.review();
+    this.setReview({ correct: r.correct + 1 });
+    if (this.plugin.collect) this.plugin.collect.addCorrect();
+    this.host.gamify.grant(REVIEW_XP, { k: 'bonus.review', v: {} });
+    this.host.recomputeGrowth();
+    return REVIEW_XP;
   }
 
   finish(right, total) {

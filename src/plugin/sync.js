@@ -154,6 +154,15 @@ const dayPair = (dayKey, countKey) => (b, l, r, ctx) => {
   return { [dayKey]: l[dayKey], [countKey]: rule(SUM, bb, l[countKey], r[countKey], ctx) };
 };
 
+// [Plus] 고양이 모으기 (plugin/collect.js): 데려온 고양이는 합집합(양쪽에 다 있으면 이 기기 것),
+// 만난 기록 · 조건은 합치고(먼저 본 날), 데려온 고양이 · 표 · 길고양이는 이 기기 것 (기기마다 지금 무엇을 하고 있는지라)
+const HERD = custom((b, l, r) => {
+  if (!isObj(l)) return r;
+  if (!isObj(r)) return l;
+  const early = (a, c) => Object.fromEntries([...new Set([...Object.keys(a || {}), ...Object.keys(c || {})])].map((k) => [k, Math.min(num(a && a[k]) || Infinity, num(c && c[k]) || Infinity) || 0]));
+  return { ...l, cats: { ...(r.cats || {}), ...(l.cats || {}) }, seen: early(l.seen, r.seen), flags: early(l.flags, r.flags), rolled: Math.max(num(l.rolled), num(r.rolled)) };
+});
+
 const byJson = (x) => JSON.stringify(x);
 const pad = (n) => String(n).padStart(2, '0');
 const dayOfMs = (ms) => {
@@ -203,6 +212,7 @@ const STATE = objOf({
   achievements: mapOf({ t: 'min' }),
   rewarded: mapOf(OR), achRetro: mapOf(OR), achNoCoins: mapOf(OR), streakGifts: mapOf(OR),
   questSet: QUESTS,
+  herd: HERD,
   gauge: GAUGE,
   life: LIFE,
   ...Object.fromEntries(DEVICE_STATE.map((k) => [k, DEVICE])),

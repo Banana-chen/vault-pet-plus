@@ -21,6 +21,7 @@ const COMMON = [
   'kit/i18n-plus.js',
   'kit/pixelart.js',
   'kit/sprite.js',
+  'kit/breeds.js',
   'kit/friends.js',
   'kit/accessories.js',
   'kit/accessories-workshop-b.js',
@@ -143,6 +144,7 @@ const HOUSE_BODY = `
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="achievements" data-icon="medal"><span class="tx"></span></button>
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="wardrobe" data-icon="ribbon"><span class="tx"></span><span class="dot" id="dot-wardrobe" hidden></span></button>
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="shop" data-icon="coin"><span class="tx"></span><span class="dot" id="dot-shop" hidden></span></button>
+        <button role="tab" aria-selected="false" aria-controls="view" data-tab="cats" data-icon="heart"><span class="tx"></span></button>
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="friends" data-icon="paw"><span class="tx"></span><span class="dot" id="dot-friends" hidden></span></button>
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="workshop" data-icon="gem"><span class="tx"></span></button>
         <button role="tab" aria-selected="false" aria-controls="view" data-tab="stats" data-icon="chart"><span class="tx"></span></button>

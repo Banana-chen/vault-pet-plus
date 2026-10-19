@@ -1127,6 +1127,20 @@ test('sync: 두 기기가 따로 같은 보상(업적 · 하루 목표)을 줬�
   assert.strictEqual(kinds.filter((k) => k === 'bonus.focus').length, 2);
 });
 
+test('sync [Plus]: 두 기기가 따로 데려온 고양이는 둘 다 남고, 데려온 고양이(active)는 이 기기 것', () => {
+  const l = devData();
+  const r = devData();
+  const cat = (breed) => ({ breed, frozen: 0, base: 0, cFrozen: 0, cBase: 0, correct: 0, days: [], nights: [], peak: 0 });
+  l.state.herd = { active: 'puff', cats: { cheese: cat('cheese'), puff: cat('puff') }, seen: { cheese: 0, puff: 5 }, flags: { links5: 3 }, tickets: [], rolled: 3, stray: null };
+  r.state.herd = { active: 'owl', cats: { cheese: cat('cheese'), owl: cat('owl') }, seen: { cheese: 0, owl: 7, puff: 4 }, flags: { links5: 2 }, tickets: [{ due: 9 }], rolled: 4, stray: null };
+  const m = mergeData(null, l, { ...r, meta: { sync: { B: 1 } } }, { now: SYNC_T0 });
+  assert.deepStrictEqual(Object.keys(m.state.herd.cats).sort(), ['cheese', 'owl', 'puff']);
+  assert.strictEqual(m.state.herd.active, 'puff');
+  assert.strictEqual(m.state.herd.seen.puff, 4);
+  assert.strictEqual(m.state.herd.flags.links5, 2);
+  assert.strictEqual(m.state.herd.rolled, 4);
+});
+
 test('sync: 판 번호는 공유 칸이 바뀔 때만 오르고, 내 파일이 다시 와도(메아리) 아무것도 안 바뀐다', () => {
   const A = new SyncBook('A', null);
   const d = devData();

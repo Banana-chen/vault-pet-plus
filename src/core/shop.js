@@ -968,7 +968,8 @@ class Shop {
     if (isStar(it)) return this.starWallet().balance < it.stars ? 'stars' : null;
     if (it.level) {
       const g = this.getGrowth();
-      if (!g || g.level < it.level) return 'level';
+      // [Plus] 모은 고양이 중 가장 높은 레벨 (unlockLevel)
+      if (!g || (g.unlockLevel || g.level) < it.level) return 'level';
     }
     if (this.wallet().balance < it.price) return 'coins';
     return null;
@@ -1225,7 +1226,7 @@ class Shop {
   // 화면에 뿌릴 목록
   summary() {
     const g = this.getGrowth();
-    const level = g ? g.level : 1;
+    const level = g ? g.unlockLevel || g.level : 1;
     const row = (it) => ({
       key: it.key,
       kind: it.kind,

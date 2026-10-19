@@ -371,6 +371,7 @@ class KitHost {
     // [Plus] 말풍선 · 메뉴의 'review' · 'tidy' 는 하우스 탭이 아니라 복습 · 정리 창
     if (tab === 'review') return this.plugin.openReview();
     if (tab === 'tidy') return this.plugin.openTidy();
+    if (tab === 'tame') return this.plugin.openTame();
     this.plugin.openHouse(tab);
   }
 
@@ -769,6 +770,8 @@ class KitHost {
 
   friendTick() {
     if (!this.friends || !this.pet || this.loading) return;
+    // [Plus] 길고양이가 와 있는 동안은 동네 친구가 안 온다 (자리가 하나뿐)
+    if (this.plugin.collect && this.plugin.collect.blocksFriends()) return;
     const v0 = this.friends.st().visit;
     // 펫 판이 인사를 못 하고 시간이 한참 지났으면 여기서 보낸다. 두고 간 보물은 상자로 바로 (keep)
     if (v0 && v0.until + MIN <= Date.now()) {
@@ -1113,16 +1116,23 @@ class KitHost {
     const silent = !gamify.st.initialized;
     const since = state.get('startedAt') || 0;
     const bonus = (s) => gamify.bonusXp(s);
-    const habits = this.plugin.plus ? this.plugin.plus.habits() : {};
-    let g = computeGrowth(since, usage, bonus, habits);
+    // [Plus] 데려온 고양이의 품종 단계 · 경험치 · 습관 (plugin/collect.js)
+    const C = this.plugin.collect;
+    const habits = C ? C.habits() : {};
+    const opts = () => (C ? C.growthOpts() : {});
+    let g = computeGrowth(since, usage, bonus, habits, opts());
     for (let i = 0; i < 4; i++) {
       gamify.evaluate(g, silent);
-      const next = computeGrowth(since, usage, bonus, habits);
+      const next = computeGrowth(since, usage, bonus, habits, opts());
       if (next.xp === g.xp) break;
       g = next;
     }
     if (silent) gamify.finishInit();
     const before = this.growth ? this.growth.xp : null;
+    // 털색 · 상점 물건을 여는 레벨은 모은 고양이 중 가장 높은 레벨
+    const unlockedBefore = this.growth ? this.growth.unlockLevel || this.growth.level : 0;
+    g.unlockLevel = C ? C.unlockLevel(g.level) : g.level;
+    if (C) C.notePeak(g.stageIndex);
     this.growth = g;
 
     const lastLevel = state.get('lastLevel');
@@ -1138,7 +1148,8 @@ class KitHost {
         this.send('pet:action', this.motionFor('levelup'));
         this.sound('levelup');
         this.bubble(this.T.line('levelup', { lv: g.level }), 'grow');
-        const opened = FURS.filter((f) => f.level > lastLevel && f.level <= g.level);
+        // [Plus] 다른 고양이로 이미 연 털색이면 새로 열렸다고 하지 않는다
+        const opened = FURS.filter((f) => f.level > Math.max(lastLevel, unlockedBefore) && f.level <= g.level);
         if (opened.length) this.later(() => this.bubble(this.T.t('fur.unlocked', { name: this.T.t('fur.' + opened[opened.length - 1].key) }), 'item', 'wardrobe'), 2500);
       }
     }
@@ -1227,7 +1238,8 @@ class KitHost {
       daily: usage.daily(14),
       hours: usage.hours(),
       projects: usage.projects(this.plugin.topFolders()),
-      stages: STAGES,
+      stages: this.plugin.collect ? this.plugin.collect.stages() : STAGES,
+      collection: this.plugin.collect ? this.plugin.collect.summary() : null,
       furs: FURS,
       formula: { CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION, XP_PER_TASK, TASK_COINS },
       goal: this.goals.progress(), // 오늘의 목표 (1.5.0)
@@ -1360,6 +1372,13 @@ class KitHost {
     this.gamify.tick(this.brain.lastActivity, this.brain.streakMs());
     this.recomputeGrowth();
     if (this.plugin.plus) this.plugin.plus.tick().catch((e) => console.error('[Vault Pet Plus] tick', e));
+    if (this.plugin.collect) {
+      try {
+        this.plugin.collect.tick();
+      } catch (e) {
+        console.error('[Vault Pet Plus] collect', e);
+      }
+    }
   }
 
   // 5초마다
@@ -1413,6 +1432,7 @@ class KitHost {
         // 펫 판을 새로 만들었으면 바닥·놀이·친구가 다 사라진 새 화면이다. 호스트 쪽 사정을 다시 맞춘다
         this.dragging = false;
         this.playing = null;
+        if (this.plugin.collect) this.plugin.collect.petReloaded();
         this.refundTreats();
         this.pendingLoot = [];
         this.send('pet:config', this.petConfig());
@@ -1768,6 +1788,10 @@ class KitHost {
         }
         return r;
       }
+      // [Plus] 도감에서 고양이 바꾸기
+      case 'collect:switch':
+        if (this.plugin.collect) this.plugin.collect.switchTo(String(a[0]));
+        return this.housePayload();
       case 'pet:friend-info':
         return this.friendInfo();
       case 'pet:friend-trade': {
@@ -1870,7 +1894,9 @@ class KitHost {
     if ('fur' in allowed) {
       const f = FURS.find((x) => x.key === allowed.fur);
       // 별 전용 털색은 별 상점에서 산 것만 (shop.owned 가 개발자 모드면 전부 연다)
-      if (!f || (f.stars ? !shop.owned('fur_' + f.key) : (this.growth ? this.growth.level : 1) < f.level && !settings.get('devMode'))) delete allowed.fur;
+      // [Plus] 레벨은 모은 고양이 중 가장 높은 레벨로 연다
+      const lv = this.growth ? this.growth.unlockLevel || this.growth.level : 1;
+      if (!f || (f.stars ? !shop.owned('fur_' + f.key) : lv < f.level && !settings.get('devMode'))) delete allowed.fur;
     }
     let wore = false;
     if ('accessory' in allowed) {

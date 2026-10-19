@@ -978,7 +978,8 @@ function achTip(id) {
 // ---------- 털색 고르기 ----------
 // 레벨이 닿은 털색만 고를 수 있다. 잠긴 건 '레벨 N에 열려요'
 function openFurPicker() {
-  const lv = D.growth ? D.growth.level : 1;
+  // [Plus] 모은 고양이 중 가장 높은 레벨로 연다
+  const lv = D.growth ? D.growth.unlockLevel || D.growth.level : 1;
   const now = D.settings.fur || 'cheese';
   const stage = D.growth ? D.growth.stageKey : 'cat';
   const cells = (D.furs || [])
@@ -1495,6 +1496,10 @@ const motionInTab = (it, k) => (k === 'work' ? it.slots.some((x) => WORK_SLOTS.i
 const PROJECTS_SHOWN = 6;
 let projectsOpen = false;
 
+// [Plus] 다음 진화까지 남은 조건: 레벨 + 그 품종의 습관들 (core/breeds.js)
+const needList = (g) =>
+  [`Lv.${g.level}/${g.nextNeed.level}`, ...Object.keys(g.nextNeed).filter((k) => k !== 'level').map((k) => `${t('need.' + k)} ${fmt(g.have[k] || 0)}/${fmt(g.nextNeed[k])}`)].join(' · ');
+
 const TABS = {
   home() {
     const g = D.growth;
@@ -1524,7 +1529,7 @@ const TABS = {
           .join('')}</div>
         <div class="bar" style="margin-top:10px"><i style="width:${g ? g.progress * 100 : 0}%"></i></div>
         <p class="center muted" style="margin:8px 0 0">${
-          g ? (g.nextStageKey ? t('home.toNextPlus', { stage: esc(stageName(g.nextStageKey)), lv: g.level, needLv: g.nextNeed.level, links: g.have.links, needLinks: g.nextNeed.links, correct: g.have.correct, needCorrect: g.nextNeed.correct }) : t('home.grown')) : t('home.reading')
+          g ? (g.nextStageKey ? t('home.toNextAny', { stage: esc(stageName(g.nextStageKey)), list: needList(g) }) : t('home.grown')) : t('home.reading')
         }</p>
       </div>`;
     // 오늘 숫자 카드에 소제목을 달고, 자주 켜고 끄는 방해 금지는 그 줄 오른쪽에 둔다
@@ -1664,6 +1669,31 @@ const TABS = {
   friends() {
     // 동네 친구들: 놀러 오는 동네 친구 도감 (보물 상자는 2026-09-24 에 '보물 공방' 탭으로 옮겼다)
     return guestBox();
+  },
+
+  // [Plus] 고양이 도감: 데려온 고양이는 색으로, 만났지만 못 데려온 고양이는 그림자로. 몇 마리인지는 보여 주지 않는다
+  cats() {
+    const C = D.collection;
+    if (!C) return '';
+    const mine = C.cats.map(
+      (c) => `<div class="panel gcell ${c.active ? 'cat-on' : ''}">
+        <canvas class="pixel" data-stage="${esc(c.stage)}" data-furkey="${esc(c.fur)}" data-ears="${esc(c.ears)}" data-acc="${esc(c.acc)}" data-mood="active"></canvas>
+        <div class="gnm">${esc(c.name)} <span class="glv">Lv.${c.level}</span></div>
+        <div class="gsub">${esc(t('breed.' + c.breed))}${stageName(c.stage) !== t('breed.' + c.breed) ? ` · ${esc(stageName(c.stage))}` : ''}</div>
+        <div class="fr-call">${
+          c.active
+            ? `<span class="own">${icon('check', 11)}${t('cats.with')}</span>`
+            : `<button class="btn small primary" data-act="catSwitch" data-cat="${esc(c.key)}">${icon('paw', 12)}${t('cats.bring')}</button>`
+        }</div>
+      </div>`,
+    );
+    const seen = C.seen.map(
+      (s) => `<div class="panel gcell unknown"><canvas class="pixel" data-stage="${esc(s.stage)}" data-plain="1" data-mood="idle"></canvas><div class="gnm">???</div><div class="gsub">${t('cats.seen')}</div></div>`,
+    );
+    return `<h2>${t('cats.title')}</h2>
+      <p class="muted" style="margin-top:-4px">${t('cats.sub')}</p>
+      <div class="gbox">${[...mine, ...seen].join('')}</div>
+      <p class="center muted" style="margin-top:12px">${t('cats.more')}</p>`;
   },
 
   // 보물 공방: 주운 보물을 재료로 공방 전용 코스튬을 만든다 (main/workshop.js).
@@ -2792,7 +2822,7 @@ function bindView(view) {
   );
 }
 
-async function act(name) {
+async function act(name, el) {
   if (name === 'projectsMore') {
     projectsOpen = !projectsOpen;
     const y = $('#view').scrollTop;
@@ -2861,6 +2891,12 @@ async function act(name) {
       break;
     case 'goalEdit':
       openGoalPicker();
+      break;
+    // [Plus] 도감에서 고양이 바꾸기
+    case 'catSwitch':
+      await apply(await pet.collectSwitch(el.dataset.cat));
+      renderView();
+      toast(t('cats.switched', { name: D.settings.petName }), 'paw');
       break;
     case 'quiet':
       await apply(await pet.setQuiet(D.quiet ? 0 : 60));

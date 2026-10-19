@@ -31,17 +31,19 @@ function loadKit(plugin) {
   return kit;
 }
 
+// look = { stage, fur, ears, accessory } 를 주면 그 고양이를 (길고양이), 없으면 데려온 고양이를 그린다
 class ModalCat {
-  constructor(plugin, parent) {
+  constructor(plugin, parent, look = null) {
     const s = plugin.settings;
     this.canvas = parent.createEl('canvas', { cls: 'vpp-cat' });
     this.timer = null;
     try {
       const r = new (loadKit(plugin).PetRenderer)(this.canvas);
-      r.setStage((plugin.host.growth && plugin.host.growth.stageKey) || 'cat');
-      r.setAccessory(s.get('accessory') || 'none');
-      r.setFur(s.get('fur'));
-      r.setEars(s.get('ears'));
+      const L = look || { stage: (plugin.host.growth && plugin.host.growth.stageKey) || 'cat', accessory: s.get('accessory'), fur: s.get('fur'), ears: s.get('ears') };
+      r.setStage(L.stage);
+      r.setAccessory(L.accessory || 'none');
+      r.setFur(L.fur);
+      r.setEars(L.ears);
       r.setMood('idle');
       this.r = r;
       r.frame();

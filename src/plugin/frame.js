@@ -55,6 +55,7 @@ const API = [
   ['whatsNewSeen', 'invoke', 'house:whats-new-seen'], // '새로 생긴 것' 창을 봤다
   ['refreshQuests', 'invoke', 'quest:refresh'],
   ['friendCall', 'invoke', 'house:friend-call'],
+  ['collectSwitch', 'invoke', 'collect:switch'], // [Plus] 도감에서 고양이 바꾸기
   ['friendGift', 'invoke', 'house:friend-gift'],
   ['devEvent', 'invoke', 'dev:event'],
   ['saveCard', 'invoke', 'card:save'],

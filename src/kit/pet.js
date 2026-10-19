@@ -188,7 +188,7 @@ const queue = [];
 let current = null;
 let hideTimer = null;
 let typeTimer = null;
-const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe', review: 'pet.linkReview', tidy: 'pet.linkTidy' };
+const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe', review: 'pet.linkReview', tidy: 'pet.linkTidy', tame: 'pet.linkTame', cats: 'pet.linkCats' };
 // 말풍선 종류마다 앞에 붙는 도트 아이콘. 없으면 아이콘 없이 글만 나온다
 // 말풍선 앞 아이콘은 무슨 말인지 알려 줄 때만 (보상 · 밥 · 알림 · 쉬자 · 늦은 밤 · 팁).
 // 쓰다듬기 반응 · 수다 · 인사처럼 그냥 하는 말에는 안 붙인다 (2026-09-25)
@@ -1998,7 +1998,15 @@ function startFriend(f) {
   c.width = c.height = PetSprite.GRID;
   document.body.appendChild(c);
   let r = null;
-  if (f.fur != null) {
+  if (f.stray) {
+    // [Plus] 처음 보는 길고양이: 품종 그림 (kit/breeds.js) 에 그 품종 털색 · 귀
+    r = new PetSprite.PetRenderer(c);
+    r.setStage(f.stray.stage);
+    r.setFur(f.stray.fur);
+    r.setEars(f.stray.ears);
+    r.setAccessory('none');
+    r.setMood('idle');
+  } else if (f.fur != null) {
     r = new PetSprite.PetRenderer(c);
     r.fur = PetSprite.GUEST_FURS[f.fur];
     r.setStage('cat');
@@ -2059,6 +2067,8 @@ async function friendBye(fromMain) {
   // 친구가 그 자리에 굳은 채 안 사라졌다 (1차 테스트 피드백, 2026-09-29)
   const [min, max] = lane();
   friend.exit = friend.x > (min + max) / 2 ? window.innerWidth + petPx() : -petPx();
+  // [Plus] 길고양이는 말없이 간다 (떠나는 시각 · 기록은 plugin/collect.js 가 갖고 있다)
+  if (friend.stray) return;
   const r = fromMain ? null : await pet.friendBye().catch(() => null);
   if (!friend) return;
   if (r && r.gift) spawnLoot(r.gift, friend.x, floorY() - 20);
@@ -2296,7 +2306,9 @@ function dropFriend() {
   const clicked = !friend.held.moved;
   friend.held = null;
   document.body.classList.remove('dragging');
-  if (clicked) fcard ? closeFriendCard(true) : openFriendCard();
+  // [Plus] 길고양이를 누르면 길들이기 창
+  if (clicked && friend.stray) pet.open('tame');
+  else if (clicked) fcard ? closeFriendCard(true) : openFriendCard();
   return true;
 }
 function isOverFriend(e) {
