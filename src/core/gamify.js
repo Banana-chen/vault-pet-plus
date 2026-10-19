@@ -34,6 +34,9 @@ const QUEST_POOL = [
   { type: 'catch', metric: (c) => cntOf(c, 'catch'), tiers: { easy: [3, 30], normal: [10, 60], hard: [25, 120] }, needs: (c) => c.toys > 0 },
   { type: 'rest', metric: (c) => c.st.restsTaken || 0, tiers: { normal: [1, 70], hard: [2, 130] } },
   { type: 'spend', metric: (c) => c.st.walletSpent || 0, tiers: { easy: [20, 25], normal: [80, 55], hard: [250, 110] } },
+  // [Plus] 복습 · 링크 정리 (plugin/plus.js 가 state.review · state.tidy 에 센다)
+  { type: 'review', metric: (c) => (c.st.review || {}).done || 0, tiers: { easy: [3, 30], normal: [6, 60], hard: [10, 110] }, needs: (c) => Object.keys((c.st.review || {}).deck || {}).length > 0 },
+  { type: 'tidy', metric: (c) => (c.st.tidy || {}).done || 0, tiers: { easy: [1, 30], normal: [2, 60] }, needs: (c) => ((c.st.tidy || {}).open || 0) > 0 },
 ];
 const QUEST_TIERS = ['hard', 'normal', 'easy']; // 화면에 놓는 순서도 상·중·하
 const QUEST_REFRESH_MS = 3 * 60 * MIN; // 새 퀘스트로 바꿀 수 있기까지. 시간이 지나도 저절로 바뀌지는 않는다

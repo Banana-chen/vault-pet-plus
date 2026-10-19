@@ -45,6 +45,7 @@ const { KitHost, STATE_DEFAULTS } = require(path.join(src, 'plugin/host'));
 const I18N = require(path.join(src, 'kit/i18n'));
 globalThis.I18N = I18N;
 require(path.join(src, 'kit/i18n-obsidian'));
+require(path.join(src, 'kit/i18n-plus'));
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });

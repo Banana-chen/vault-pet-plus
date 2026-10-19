@@ -86,3 +86,44 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
   width: 20px;
   height: 20px;
 }
+
+/* [Plus] 복습 · 링크 정리 창 (plugin/plus-modals.js) */
+.vpp-modal .vpp-question {
+  white-space: pre-wrap;
+  padding: var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  line-height: 1.6;
+}
+.vpp-modal .vpp-hint {
+  color: var(--text-accent);
+  min-height: 1.5em;
+}
+.vpp-modal .vpp-input {
+  width: 100%;
+}
+.vpp-modal .vpp-result {
+  font-weight: 600;
+}
+.vpp-modal .vpp-right {
+  color: var(--color-green);
+}
+.vpp-modal .vpp-wrong {
+  color: var(--color-red);
+}
+.vpp-modal .vpp-tidy {
+  margin-bottom: var(--size-4-4);
+}
+.vpp-modal .vpp-diff {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+  white-space: pre-wrap;
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--radius-s);
+}
+.vpp-modal .vpp-before {
+  background: rgba(var(--color-red-rgb), 0.1);
+}
+.vpp-modal .vpp-after {
+  background: rgba(var(--color-green-rgb), 0.1);
+}

@@ -1412,12 +1412,12 @@ const TABS = {
         <div class="road">${D.stages
           .map((s, i) => {
             const cls = !g ? 'locked' : i < g.stageIndex ? 'done' : i === g.stageIndex ? 'now' : 'locked';
-            return `<div class="step ${cls}"><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">${fmt(s.min)}</span></div>`;
+            return `<div class="step ${cls}"><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">Lv.${s.need.level}</span></div>`;
           })
           .join('')}</div>
         <div class="bar" style="margin-top:10px"><i style="width:${g ? g.progress * 100 : 0}%"></i></div>
         <p class="center muted" style="margin:8px 0 0">${
-          g ? (g.nextStageKey ? t('home.toNext', { stage: esc(stageName(g.nextStageKey)), xp: fmt(g.xpToNext) }) : t('home.grown')) : t('home.reading')
+          g ? (g.nextStageKey ? t('home.toNextPlus', { stage: esc(stageName(g.nextStageKey)), lv: g.level, needLv: g.nextNeed.level, links: g.have.links, needLinks: g.nextNeed.links, correct: g.have.correct, needCorrect: g.nextNeed.correct }) : t('home.grown')) : t('home.reading')
         }</p>
       </div>`;
     // 오늘 숫자 카드에 소제목을 달고, 자주 켜고 끄는 방해 금지는 그 줄 오른쪽에 둔다

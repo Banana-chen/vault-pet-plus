@@ -3,7 +3,12 @@
 // 고양이는 한 마리뿐이다. 2026-09-21 에 아기·어른을 접고 이 한 마리로 간다.
 // 단계 장치(STAGES 배열·stageIndex·nextStage)는 그대로 남겨 뒀다 — 반응을 보고 다시 늘리려면
 // 여기에 줄만 더하면 되고, 화면은 STAGES.length 가 1 이면 단계 얘기를 알아서 숨긴다.
-const STAGES = [{ key: 'cat', name: '고양이', min: 0 }];
+// [Plus] 진화 단계를 다시 늘렸다. 경험치만이 아니라 링크 수 · 복습에서 맞힌 수까지 채워야 다음 단계 (core/review.js)
+const STAGES = [
+  { key: 'cat', name: '고양이', need: { level: 1, links: 0, correct: 0 } },
+  { key: 'cat2', name: '공부 고양이', need: { level: 15, links: 10, correct: 20 } },
+  { key: 'cat3', name: '현자 고양이', need: { level: 35, links: 30, correct: 100 } },
+];
 
 // 옛 인덱스(알0 아기1 어린이2 청소년3 어른4 / 아기0 청소년1 어른2) → 전부 0
 const STAGE_FOLD = [0, 0, 0, 0, 0];
@@ -70,25 +75,30 @@ function starsOf(xp) {
   return { stars, starProgress: into / STAR_XP, starNext: xp >= XP_AT_MAX ? STAR_XP - into : XP_AT_MAX - xp + STAR_XP, starXp: STAR_XP };
 }
 
-function stageIndexOf(xp) {
+// habits = { links, correct, floor }. floor = 이미 올라간 단계 (링크를 지워도 퇴화하지 않는다)
+function stageIndexOf(level, habits) {
+  const h = { links: 0, correct: 0, floor: 0, ...habits };
+  const meets = (n) => level >= n.level && h.links >= n.links && h.correct >= n.correct;
   let i = 0;
-  while (i + 1 < STAGES.length && xp >= STAGES[i + 1].min) i++;
-  return i;
+  while (i + 1 < STAGES.length && meets(STAGES[i + 1].need)) i++;
+  return Math.max(i, Math.min(h.floor || 0, STAGES.length - 1));
 }
 
 // since = 처음 만난 시각 (state.startedAt). 그 뒤에 쓴 만큼만 자란다. 이전 기록은 누적 기록에서 구경만 한다
 // bonusXp(since) = 업적·퀘스트·출석으로 받은 보너스 경험치
-function computeGrowth(since, usage, bonusXp = () => 0) {
+function computeGrowth(since, usage, bonusXp = () => 0, habits = {}) {
   const usageXp = xpOf(usage.totals(since));
   const bonus = bonusXp(since);
   const xp = usageXp + bonus;
 
-  const si = stageIndexOf(xp);
+  const level = levelOf(xp);
+  const si = stageIndexOf(level, habits);
   const stage = STAGES[si];
   const next = STAGES[si + 1];
-  const progress = next ? (xp - stage.min) / (next.min - stage.min) : 1;
-
-  const level = levelOf(xp);
+  const h = { links: 0, correct: 0, ...habits };
+  // 다음 단계까지: 세 조건 중 가장 덜 찬 것
+  const ratio = (have, need) => (need > 0 ? Math.min(1, have / need) : 1);
+  const progress = next ? Math.min(ratio(level, next.need.level), ratio(h.links, next.need.links), ratio(h.correct, next.need.correct)) : 1;
   const st = starsOf(xp);
   // Lv80 에서는 레벨 막대가 다음 별까지를 보여 준다 (화면은 levelFloor~levelCeil 로 막대를 그린다)
   const maxed = level >= MAX_LEVEL;
@@ -108,7 +118,9 @@ function computeGrowth(since, usage, bonusXp = () => 0) {
     stageName: stage.name,
     nextStageKey: next ? next.key : null,
     nextStageName: next ? next.name : null,
-    xpToNext: next ? next.min - xp : 0,
+    xpToNext: next ? Math.max(0, 25 * (next.need.level - 1) ** 2 - xp) : 0,
+    nextNeed: next ? { ...next.need } : null,
+    have: { links: h.links, correct: h.correct },
     progress: Math.max(0, Math.min(1, progress)),
   };
 }

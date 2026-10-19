@@ -19,12 +19,14 @@ const { KitFrame } = require('./frame');
 const { PetStage } = require('./stage');
 const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./legacy');
 const { loadSafe, backupDaily } = require('./safedata');
+const { Plus, importOriginal } = require('./plus');
+const { ReviewModal, TidyModal } = require('./plus-modals');
 const PixelArt = require('../kit/pixelart');
 const { UsageTracker, measure, folderKey, folderOf, LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET } = require('../core/usage');
 
 const VIEW_TYPE = 'kitcommit-house';
 const DATA_VERSION = 1;
-const FEEDBACK_URL = 'https://github.com/elliott-json-park/obsidian-vault-pet/issues/new/choose'; // 버그·아이디어 (누를 때만 브라우저로 연다)
+const FEEDBACK_URL = 'https://github.com/Banana-chen/vault-pet-plus/issues/new'; // 버그·아이디어 (누를 때만 브라우저로 연다)
 const MIN = 60_000;
 const PASTE_KEEP = MIN; // 붙여 넣은 글을 '세지 않을 몫'으로 들고 있는 시간
 const TYPE_STOP = 20_000; // 이만큼 손을 떼면 한 차례 쓰기가 끝난 것 (데스크톱판의 'Claude 가 답을 끝냈다')
@@ -264,6 +266,14 @@ class KitCommitPlugin extends Plugin {
     const loaded = await loadSafe(this.app.vault.adapter, this.manifest.dir);
     this.loadSource = loaded.source;
     let raw = loaded.raw || {};
+    // [Plus] 처음 켰으면 원래 Vault Pet 기록을 가져온다 (plugin/plus.js)
+    if (loaded.source === 'none') {
+      const original = await importOriginal(this);
+      if (original) {
+        raw = original;
+        this.imported = true;
+      }
+    }
     // 백업할 것: 방금 잘 읽힌 자료 (0.x 자료는 곧 새 형식으로 바뀌니 빼 둔다)
     this.loadedRaw = loaded.source === 'data' && !isLegacy(raw) ? raw : null;
     // Vault Pet 0.x 에서 업데이트했다: 예전 기록은 선물로 바꾸고, 새 고양이는 처음부터 (설정 몇 가지·이름만 옮긴다)
@@ -295,6 +305,7 @@ class KitCommitPlugin extends Plugin {
 
     this.host = new KitHost(this, { settings: this.settings, state: this.state, usage: this.usage });
     this.host.init();
+    this.plus = new Plus(this);
     this.stage = null;
     if (legacy) {
       // 선물: 코인은 지갑 보너스로, 기념 코스튬은 옷장에. 새 형식으로 바로 저장해서 두 번 받지 않게 한다
@@ -363,6 +374,18 @@ class KitCommitPlugin extends Plugin {
     cmd('hide-hour', 'obs.cmd.hide', () => this.host.hideFor(60 * MIN));
     cmd('reset-position', 'obs.cmd.position', () => this.host.resetPosition());
     cmd('stop-play', 'obs.cmd.stopPlay', () => this.host.stopPlay());
+    cmd('review', 'plus.cmdReview', () => this.openReview());
+    cmd('tidy-links', 'plus.cmdTidy', () => this.openTidy());
+  }
+
+  /* ── [Plus] 복습 · 링크 정리 ── */
+
+  async openReview() {
+    new ReviewModal(this.app, this, await this.plus.dueCards()).open();
+  }
+
+  openTidy() {
+    new TidyModal(this.app, this).open();
   }
 
   async start() {
@@ -382,6 +405,7 @@ class KitCommitPlugin extends Plugin {
       const fresh = (f instanceof TFolder ? this.app.vault.getMarkdownFiles().filter((x) => x.path.startsWith(f.path + '/')) : [f])
         .filter((x) => x instanceof TFile && x.extension === 'md' && !this.usage.known(old + x.path.slice(f.path.length)));
       this.usage.rename(old, f.path);
+      this.plus.rename(old, f.path);
       for (const x of fresh) this.baselineFile(x);
       this.saveSoon();
     }));
@@ -411,6 +435,7 @@ class KitCommitPlugin extends Plugin {
     await this.scan();
     this.host.ready();
     this.updateStatus();
+    if (this.imported) new Notice(this.host.T.t('plus.imported', { lv: this.host.growth ? this.host.growth.level : 1 }), 10000);
     this.saveSoon();
   }
 

@@ -1,5 +1,5 @@
 /*
- * Vault Pet 1.4.1 — Obsidian plugin (built 2026-10-19)
+ * Vault Pet 1.4.1-plus.0 — Obsidian plugin (built 2026-10-19)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -1133,6 +1133,9 @@ const QUEST_POOL = [
   { type: 'catch', metric: (c) => cntOf(c, 'catch'), tiers: { easy: [3, 30], normal: [10, 60], hard: [25, 120] }, needs: (c) => c.toys > 0 },
   { type: 'rest', metric: (c) => c.st.restsTaken || 0, tiers: { normal: [1, 70], hard: [2, 130] } },
   { type: 'spend', metric: (c) => c.st.walletSpent || 0, tiers: { easy: [20, 25], normal: [80, 55], hard: [250, 110] } },
+  // [Plus] 복습 · 링크 정리 (plugin/plus.js 가 state.review · state.tidy 에 센다)
+  { type: 'review', metric: (c) => (c.st.review || {}).done || 0, tiers: { easy: [3, 30], normal: [6, 60], hard: [10, 110] }, needs: (c) => Object.keys((c.st.review || {}).deck || {}).length > 0 },
+  { type: 'tidy', metric: (c) => (c.st.tidy || {}).done || 0, tiers: { easy: [1, 30], normal: [2, 60] }, needs: (c) => ((c.st.tidy || {}).open || 0) > 0 },
 ];
 const QUEST_TIERS = ['hard', 'normal', 'easy']; // 화면에 놓는 순서도 상·중·하
 const QUEST_REFRESH_MS = 3 * 60 * MIN; // 새 퀘스트로 바꿀 수 있기까지. 시간이 지나도 저절로 바뀌지는 않는다
@@ -1710,7 +1713,12 @@ __defs["core/growth"] = function (module, exports, require) {
 // 고양이는 한 마리뿐이다. 2026-09-21 에 아기·어른을 접고 이 한 마리로 간다.
 // 단계 장치(STAGES 배열·stageIndex·nextStage)는 그대로 남겨 뒀다 — 반응을 보고 다시 늘리려면
 // 여기에 줄만 더하면 되고, 화면은 STAGES.length 가 1 이면 단계 얘기를 알아서 숨긴다.
-const STAGES = [{ key: 'cat', name: '고양이', min: 0 }];
+// [Plus] 진화 단계를 다시 늘렸다. 경험치만이 아니라 링크 수 · 복습에서 맞힌 수까지 채워야 다음 단계 (core/review.js)
+const STAGES = [
+  { key: 'cat', name: '고양이', need: { level: 1, links: 0, correct: 0 } },
+  { key: 'cat2', name: '공부 고양이', need: { level: 15, links: 10, correct: 20 } },
+  { key: 'cat3', name: '현자 고양이', need: { level: 35, links: 30, correct: 100 } },
+];
 
 // 옛 인덱스(알0 아기1 어린이2 청소년3 어른4 / 아기0 청소년1 어른2) → 전부 0
 const STAGE_FOLD = [0, 0, 0, 0, 0];
@@ -1777,25 +1785,30 @@ function starsOf(xp) {
   return { stars, starProgress: into / STAR_XP, starNext: xp >= XP_AT_MAX ? STAR_XP - into : XP_AT_MAX - xp + STAR_XP, starXp: STAR_XP };
 }
 
-function stageIndexOf(xp) {
+// habits = { links, correct, floor }. floor = 이미 올라간 단계 (링크를 지워도 퇴화하지 않는다)
+function stageIndexOf(level, habits) {
+  const h = { links: 0, correct: 0, floor: 0, ...habits };
+  const meets = (n) => level >= n.level && h.links >= n.links && h.correct >= n.correct;
   let i = 0;
-  while (i + 1 < STAGES.length && xp >= STAGES[i + 1].min) i++;
-  return i;
+  while (i + 1 < STAGES.length && meets(STAGES[i + 1].need)) i++;
+  return Math.max(i, Math.min(h.floor || 0, STAGES.length - 1));
 }
 
 // since = 처음 만난 시각 (state.startedAt). 그 뒤에 쓴 만큼만 자란다. 이전 기록은 누적 기록에서 구경만 한다
 // bonusXp(since) = 업적·퀘스트·출석으로 받은 보너스 경험치
-function computeGrowth(since, usage, bonusXp = () => 0) {
+function computeGrowth(since, usage, bonusXp = () => 0, habits = {}) {
   const usageXp = xpOf(usage.totals(since));
   const bonus = bonusXp(since);
   const xp = usageXp + bonus;
 
-  const si = stageIndexOf(xp);
+  const level = levelOf(xp);
+  const si = stageIndexOf(level, habits);
   const stage = STAGES[si];
   const next = STAGES[si + 1];
-  const progress = next ? (xp - stage.min) / (next.min - stage.min) : 1;
-
-  const level = levelOf(xp);
+  const h = { links: 0, correct: 0, ...habits };
+  // 다음 단계까지: 세 조건 중 가장 덜 찬 것
+  const ratio = (have, need) => (need > 0 ? Math.min(1, have / need) : 1);
+  const progress = next ? Math.min(ratio(level, next.need.level), ratio(h.links, next.need.links), ratio(h.correct, next.need.correct)) : 1;
   const st = starsOf(xp);
   // Lv80 에서는 레벨 막대가 다음 별까지를 보여 준다 (화면은 levelFloor~levelCeil 로 막대를 그린다)
   const maxed = level >= MAX_LEVEL;
@@ -1815,7 +1828,9 @@ function computeGrowth(since, usage, bonusXp = () => 0) {
     stageName: stage.name,
     nextStageKey: next ? next.key : null,
     nextStageName: next ? next.name : null,
-    xpToNext: next ? next.min - xp : 0,
+    xpToNext: next ? Math.max(0, 25 * (next.need.level - 1) ** 2 - xp) : 0,
+    nextNeed: next ? { ...next.need } : null,
+    have: { links: h.links, correct: h.correct },
     progress: Math.max(0, Math.min(1, progress)),
   };
 }
@@ -1964,6 +1979,165 @@ function cleanCardPrefs(p) {
 }
 
 module.exports = { recap, periodOf, longestStreak, KINDS, CARD_CELLS, CARD_THEMES, CARD_POSES, CARD_MAX_CELLS, CARD_CAPTION, cleanCardPrefs };
+
+};
+
+__defs["core/review"] = function (module, exports, require) {
+'use strict';
+// [Plus] 복습 카드: 노트 제목이 정답, 첫 단락이 문제 (고양이가 제목 글자를 먹어 버렸다).
+// 형광펜(==말==) 카드도 있다: 그 말이 있는 단락에서 그 말을 먹었다.
+// 카드 내용은 따로 저장하지 않는다. 문제는 낼 때마다 지금 노트에서 만들고, 저장하는 건 상자 번호와 다음 날짜뿐이다.
+
+const BLANK = '＿＿';
+// 상자 0~4 의 간격 (일). 맞히면 다음 상자, 틀리면 상자 0
+const BOX_DAYS = [1, 2, 4, 8, 16];
+const DAILY_CAP = 10;
+const REVIEW_XP = 15;
+const QUESTION_MAX = 300;
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// 'CDP(Chrome DevTools Protocol)' → [전체, 'CDP', 'Chrome DevTools Protocol']. 괄호는 전각도 받는다.
+// 괄호가 가운데 있으면 ('共變數(Covariates)陷阱') 괄호 밖을 이은 이름 · 괄호 안 · 괄호 앞 이름
+function answersOf(title) {
+  const t = String(title).trim();
+  const m = t.match(/^(.+?)\s*[(（]([^()（）]+)[)）]\s*(.*)$/);
+  const list = m ? [t, (m[1] + m[3]).trim(), m[2].trim(), m[3] ? m[1].trim() : ''] : [t];
+  return [...new Set(list.filter(Boolean))];
+}
+
+// 첫 단락: frontmatter 와 앞쪽 제목줄 · 빈 줄을 건너뛰고 다음 빈 줄까지
+function firstParagraph(text) {
+  const body = String(text).replace(/^---\n[\s\S]*?\n---\n?/, '');
+  const out = [];
+  for (const line of body.split('\n')) {
+    const s = line.trim();
+    if (!out.length && (!s || s.startsWith('#'))) continue;
+    if (!s) break;
+    out.push(s);
+  }
+  return out.join('\n').slice(0, QUESTION_MAX);
+}
+
+// 문제에서 가릴 말: 정답들과, 中文 쪽 이름 안의 영어 낱말 ('Juggler協定' 의 'Juggler'),
+// 여러 낱말 영어 이름의 머리글자 ('Dead Letter Queue' 의 'DLQ')
+const initialsOf = (answers) =>
+  answers
+    .filter((a) => /^[A-Za-z][A-Za-z ]+$/.test(a) && a.trim().split(/\s+/).length >= 2)
+    .map((a) => a.trim().split(/\s+/).map((w) => w[0].toUpperCase()).join(''))
+    .filter((x) => x.length >= 3);
+
+function maskTerms(answers) {
+  const latin = (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
+  return [...new Set([...answers, ...latin])].sort((a, b) => b.length - a.length);
+}
+
+const normalize = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+
+// 정답에는 머리글자도 넣는다 (DLQ 로 답해도 맞다). 머리글자는 문제에서도 가려진다
+function cardOf(title, text) {
+  const answers = [...new Set([...answersOf(title), ...initialsOf(answersOf(title))])];
+  let question = firstParagraph(text);
+  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다
+  const edge = (term) => `${/^[A-Za-z0-9]/.test(term) ? '(?<![A-Za-z0-9])' : ''}${escapeRe(term)}${/[A-Za-z0-9]$/.test(term) ? '(?![A-Za-z0-9])' : ''}`;
+  for (const term of maskTerms(answers)) question = question.replace(new RegExp(edge(term), 'gi'), BLANK);
+  if (normalize(question.split(BLANK).join('')).length < 4) return null;
+  return { answers, question };
+}
+
+/* ── 형광펜 카드 ── */
+
+// 덱 열쇠: 제목 카드는 노트 경로, 형광펜 카드는 '경로\n==말'
+const HL_SEP = '\n==';
+const HIGHLIGHT = /==([^=\n]+)==/g;
+const stripCode = (text) => String(text).replace(/```[\s\S]*?(```|$)/g, '').replace(/`[^`\n]*`/g, '');
+
+function highlightsOf(text) {
+  return [...new Set([...stripCode(text).matchAll(HIGHLIGHT)].map((m) => m[1].trim()).filter(Boolean))];
+}
+
+const cardKeys = (path, text) => [path, ...highlightsOf(text).map((h) => path + HL_SEP + h)];
+
+function parseKey(key) {
+  const i = key.indexOf(HL_SEP);
+  return i < 0 ? { path: key, highlight: null } : { path: key.slice(0, i), highlight: key.slice(i + HL_SEP.length) };
+}
+
+function clozeOf(text, highlight) {
+  const para = stripCode(text)
+    .split(/\n\s*\n/)
+    .find((p) => p.includes(`==${highlight}==`));
+  if (!para) return null;
+  const question = para
+    .trim()
+    .split(`==${highlight}==`)
+    .join(BLANK)
+    .replace(HIGHLIGHT, '$1')
+    .slice(0, QUESTION_MAX);
+  return { answers: [highlight], question };
+}
+
+function distance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이)
+function grade(input, answers) {
+  const n = normalize(input);
+  if (!n) return 'wrong';
+  const keys = answers.map(normalize).filter(Boolean);
+  if (keys.includes(n)) return 'right';
+  const close = keys.some((k) => k.length >= 3 && distance(n, k) <= Math.max(1, Math.floor(k.length * 0.4)));
+  return close ? 'close' : 'wrong';
+}
+
+// card = { b: 상자, due: 다음 날 (dayNum) }. 힌트를 쓰고 맞히면 상자는 그대로
+function schedule(card, result, today, hinted) {
+  if (result !== 'right') return { b: 0, due: today + BOX_DAYS[0] };
+  const b = hinted ? card.b : Math.min(card.b + 1, BOX_DAYS.length - 1);
+  return { b, due: today + BOX_DAYS[b] };
+}
+
+// 지금 노트 목록에 맞춘 새 덱. 처음엔 전부 오늘부터, 그 뒤에 생긴 노트는 내일부터
+function syncDeck(deck, paths, today, first) {
+  const out = {};
+  for (const p of paths) out[p] = deck[p] || { b: 0, due: first ? today : today + 1 };
+  return out;
+}
+
+// 노트 · 폴더 이름이 바뀌면 그 아래 제목 카드 · 형광펜 카드를 다 옮긴다
+function renameInDeck(deck, from, to) {
+  const moved = (path) => (path === from ? to : path.startsWith(from + '/') ? to + path.slice(from.length) : null);
+  return Object.fromEntries(
+    Object.entries(deck).map(([k, c]) => {
+      const { path, highlight } = parseKey(k);
+      const p = moved(path);
+      return [p === null ? k : highlight === null ? p : p + HL_SEP + highlight, c];
+    }),
+  );
+}
+
+// 오늘 낼 카드: 오래 밀린 것부터, 하루 DAILY_CAP 장까지
+function dueToday(deck, today, doneToday, cap = DAILY_CAP) {
+  return Object.entries(deck)
+    .filter(([, c]) => c.due <= today)
+    .sort((a, b) => a[1].due - b[1].due || a[0].localeCompare(b[0]))
+    .slice(0, Math.max(0, cap - doneToday))
+    .map(([p]) => p);
+}
+
+const xpFor = (result, hinted) => (result === 'right' ? (hinted ? Math.floor(REVIEW_XP / 2) : REVIEW_XP) : 0);
+
+// 현지 시각 기준 날짜 번호
+const dayNum = (d = new Date()) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60_000) / 86_400_000);
+
+module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };
 
 };
 
@@ -3421,6 +3595,84 @@ function summary(usage, state, wallet, kindOf) {
 }
 
 module.exports = { summary, heatmap, weekly, focus, coinFlow, insight, dashboard, ledger };
+
+};
+
+__defs["core/tidy"] = function (module, exports, require) {
+'use strict';
+// [Plus] 링크 정리: 다른 노트의 제목이 글에 나오는데 링크가 아닌 곳을 찾는다.
+// 고치는 건 사용자가 버튼을 눌렀을 때만 (plugin/plus.js). 여기는 찾기와 바꾼 글 만들기뿐이다.
+const { answersOf } = require('./review');
+
+const SNIPPET = 16;
+const UNLINKABLE = /[|#^[\]]/;
+const ASCII_WORD = /[A-Za-z0-9]/;
+
+// 이름이 너무 짧으면 엉뚱한 곳에 걸린다. 한자가 섞이면 2자, 영어만이면 3자부터
+const aliasOk = (a) => (/[^\x00-\x7f]/.test(a) ? a.length >= 2 : a.length >= 3);
+
+// 링크로 만들면 안 되는 자리(frontmatter · 코드 · 이미 있는 링크)를 같은 길이 공백으로 지운다 (위치는 그대로)
+function blankProtected(text) {
+  const wipe = (m) => m.replace(/[^\n]/g, ' ');
+  return text
+    .replace(/^---\n[\s\S]*?\n---\n?/, wipe)
+    .replace(/```[\s\S]*?(```|$)/g, wipe)
+    .replace(/`[^`\n]*`/g, wipe)
+    .replace(/!?\[\[[^\]]*\]\]/g, wipe)
+    .replace(/!?\[[^\]\n]*\]\([^)\n]*\)/g, wipe)
+    .replace(/https?:\/\/\S+/g, wipe);
+}
+
+function wordEdge(text, i, alias) {
+  const before = text[i - 1] || '';
+  const after = text[i + alias.length] || '';
+  if (ASCII_WORD.test(alias[0]) && ASCII_WORD.test(before)) return false;
+  if (ASCII_WORD.test(alias[alias.length - 1]) && ASCII_WORD.test(after)) return false;
+  return true;
+}
+
+function firstHit(clean, aliases) {
+  let best = null;
+  for (const alias of aliases) {
+    let i = clean.indexOf(alias);
+    while (i >= 0 && !wordEdge(clean, i, alias)) i = clean.indexOf(alias, i + 1);
+    if (i >= 0 && (!best || i < best.index || (i === best.index && alias.length > best.alias.length))) best = { index: i, alias };
+  }
+  return best;
+}
+
+const linkText = (target, alias) => (alias === target ? `[[${target}]]` : `[[${target}|${alias}]]`);
+
+// notes = [{ path, title, text }] → [{ path, target, alias, index, before, after }]
+function findMentions(notes) {
+  const targets = notes
+    .filter((n) => !UNLINKABLE.test(n.title))
+    .map((n) => ({ path: n.path, title: n.title, aliases: answersOf(n.title).filter(aliasOk) }))
+    .filter((t) => t.aliases.length);
+  const out = [];
+  for (const note of notes) {
+    const clean = blankProtected(note.text);
+    for (const t of targets) {
+      if (t.path === note.path || note.text.includes(`[[${t.title}`)) continue;
+      const hit = firstHit(clean, t.aliases);
+      if (!hit) continue;
+      const from = Math.max(0, hit.index - SNIPPET);
+      const to = hit.index + hit.alias.length;
+      const head = note.text.slice(from, hit.index);
+      const tail = note.text.slice(to, to + SNIPPET);
+      out.push({ path: note.path, target: t.title, alias: hit.alias, index: hit.index, before: head + hit.alias + tail, after: head + linkText(t.title, hit.alias) + tail });
+    }
+  }
+  return out;
+}
+
+// 찾은 그 자리를 링크로 바꾼 새 글. 그사이 글이 바뀌어 그 자리에 그 말이 없으면 null
+function applyLink(text, m) {
+  if (text.slice(m.index, m.index + m.alias.length) !== m.alias) return null;
+  return text.slice(0, m.index) + linkText(m.target, m.alias) + text.slice(m.index + m.alias.length);
+}
+
+module.exports = { findMentions, applyLink };
 
 };
 
@@ -4898,8 +5150,10 @@ class KitHost {
 
   // ---------- 펫 무대 ----------
 
+  // [Plus] 진화 단계마다 15%씩 커진다 (새 도트는 아직 없다)
   effScale() {
-    return 1 + (scaleStep(this.settings.get('scale')) - 1) * 0.5;
+    const stage = this.growth ? this.growth.stageIndex : 0;
+    return (1 + (scaleStep(this.settings.get('scale')) - 1) * 0.5) * (1 + 0.15 * stage);
   }
 
   catStartX() {
@@ -4969,6 +5223,9 @@ class KitHost {
 
 
   openHouse(tab) {
+    // [Plus] 말풍선 · 메뉴의 'review' · 'tidy' 는 하우스 탭이 아니라 복습 · 정리 창
+    if (tab === 'review') return this.plugin.openReview();
+    if (tab === 'tidy') return this.plugin.openTidy();
     this.plugin.openHouse(tab);
   }
 
@@ -5039,6 +5296,12 @@ class KitHost {
     return [
       { title: T.t('tray.house'), icon: 'home', click: () => this.openHouse() },
       { title: T.t('tray.quests'), icon: 'scroll', click: () => this.openHouse('quests') },
+      ...(this.plugin.plus
+        ? [
+            { title: T.t('plus.trayReview', { n: this.plugin.plus.review().due }), icon: 'check', click: () => this.openHouse('review') },
+            { title: T.t('plus.trayTidy', { n: this.plugin.plus.tidy().open }), icon: 'sparkle', click: () => this.openHouse('tidy') },
+          ]
+        : []),
       { sep: true },
       this.isQuiet() ? { title: T.t('tray.quietOff'), icon: 'bell', click: () => this.setQuiet(0) } : { title: T.t('tray.quietOn'), icon: 'bellOff', click: () => this.setQuiet(60) },
       visible ? { title: T.t('tray.hide'), icon: 'moon', click: () => this.hideFor(60 * MIN) } : { title: T.t('tray.show'), icon: 'eye', click: () => this.showPet() },
@@ -5600,10 +5863,11 @@ class KitHost {
     const silent = !gamify.st.initialized;
     const since = state.get('startedAt') || 0;
     const bonus = (s) => gamify.bonusXp(s);
-    let g = computeGrowth(since, usage, bonus);
+    const habits = this.plugin.plus ? this.plugin.plus.habits() : {};
+    let g = computeGrowth(since, usage, bonus, habits);
     for (let i = 0; i < 4; i++) {
       gamify.evaluate(g, silent);
-      const next = computeGrowth(since, usage, bonus);
+      const next = computeGrowth(since, usage, bonus, habits);
       if (next.xp === g.xp) break;
       g = next;
     }
@@ -5616,6 +5880,7 @@ class KitHost {
     if (lastLevel != null) {
       const name = settings.get('petName');
       if (g.stageIndex > lastStage) {
+        this.send('pet:config', this.petConfig());
         this.send('pet:action', 'evolve');
         this.sound('evolve');
         this.later(() => this.bubble(this.T.line('grow', { name, stage: this.stageName(g) }), 'grow'), 1700);
@@ -5841,6 +6106,7 @@ class KitHost {
     this.friendTick();
     this.gamify.tick(this.brain.lastActivity, this.brain.streakMs());
     this.recomputeGrowth();
+    if (this.plugin.plus) this.plugin.plus.tick().catch((e) => console.error('[Vault Pet Plus] tick', e));
   }
 
   // 5초마다
@@ -6554,12 +6820,14 @@ const { KitFrame } = require('./frame');
 const { PetStage } = require('./stage');
 const { isLegacy, legacySummary, legacySettings, LEGACY_COSTUME } = require('./legacy');
 const { loadSafe, backupDaily } = require('./safedata');
+const { Plus, importOriginal } = require('./plus');
+const { ReviewModal, TidyModal } = require('./plus-modals');
 const PixelArt = require('../kit/pixelart');
 const { UsageTracker, measure, folderKey, folderOf, LIVE_CHAR_CAP, LIVE_LINK_CAP, FLUSH_BUDGET, OFFLINE_BUDGET } = require('../core/usage');
 
 const VIEW_TYPE = 'kitcommit-house';
 const DATA_VERSION = 1;
-const FEEDBACK_URL = 'https://github.com/elliott-json-park/obsidian-vault-pet/issues/new/choose'; // 버그·아이디어 (누를 때만 브라우저로 연다)
+const FEEDBACK_URL = 'https://github.com/Banana-chen/vault-pet-plus/issues/new'; // 버그·아이디어 (누를 때만 브라우저로 연다)
 const MIN = 60_000;
 const PASTE_KEEP = MIN; // 붙여 넣은 글을 '세지 않을 몫'으로 들고 있는 시간
 const TYPE_STOP = 20_000; // 이만큼 손을 떼면 한 차례 쓰기가 끝난 것 (데스크톱판의 'Claude 가 답을 끝냈다')
@@ -6799,6 +7067,14 @@ class KitCommitPlugin extends Plugin {
     const loaded = await loadSafe(this.app.vault.adapter, this.manifest.dir);
     this.loadSource = loaded.source;
     let raw = loaded.raw || {};
+    // [Plus] 처음 켰으면 원래 Vault Pet 기록을 가져온다 (plugin/plus.js)
+    if (loaded.source === 'none') {
+      const original = await importOriginal(this);
+      if (original) {
+        raw = original;
+        this.imported = true;
+      }
+    }
     // 백업할 것: 방금 잘 읽힌 자료 (0.x 자료는 곧 새 형식으로 바뀌니 빼 둔다)
     this.loadedRaw = loaded.source === 'data' && !isLegacy(raw) ? raw : null;
     // Vault Pet 0.x 에서 업데이트했다: 예전 기록은 선물로 바꾸고, 새 고양이는 처음부터 (설정 몇 가지·이름만 옮긴다)
@@ -6830,6 +7106,7 @@ class KitCommitPlugin extends Plugin {
 
     this.host = new KitHost(this, { settings: this.settings, state: this.state, usage: this.usage });
     this.host.init();
+    this.plus = new Plus(this);
     this.stage = null;
     if (legacy) {
       // 선물: 코인은 지갑 보너스로, 기념 코스튬은 옷장에. 새 형식으로 바로 저장해서 두 번 받지 않게 한다
@@ -6898,6 +7175,18 @@ class KitCommitPlugin extends Plugin {
     cmd('hide-hour', 'obs.cmd.hide', () => this.host.hideFor(60 * MIN));
     cmd('reset-position', 'obs.cmd.position', () => this.host.resetPosition());
     cmd('stop-play', 'obs.cmd.stopPlay', () => this.host.stopPlay());
+    cmd('review', 'plus.cmdReview', () => this.openReview());
+    cmd('tidy-links', 'plus.cmdTidy', () => this.openTidy());
+  }
+
+  /* ── [Plus] 복습 · 링크 정리 ── */
+
+  async openReview() {
+    new ReviewModal(this.app, this, await this.plus.dueCards()).open();
+  }
+
+  openTidy() {
+    new TidyModal(this.app, this).open();
   }
 
   async start() {
@@ -6917,6 +7206,7 @@ class KitCommitPlugin extends Plugin {
       const fresh = (f instanceof TFolder ? this.app.vault.getMarkdownFiles().filter((x) => x.path.startsWith(f.path + '/')) : [f])
         .filter((x) => x instanceof TFile && x.extension === 'md' && !this.usage.known(old + x.path.slice(f.path.length)));
       this.usage.rename(old, f.path);
+      this.plus.rename(old, f.path);
       for (const x of fresh) this.baselineFile(x);
       this.saveSoon();
     }));
@@ -6946,6 +7236,7 @@ class KitCommitPlugin extends Plugin {
     await this.scan();
     this.host.ready();
     this.updateStatus();
+    if (this.imported) new Notice(this.host.T.t('plus.imported', { lv: this.host.growth ? this.host.growth.level : 1 }), 10000);
     this.saveSoon();
   }
 
@@ -7421,6 +7712,401 @@ class KitCommitPlugin extends Plugin {
 
 module.exports = KitCommitPlugin;
 module.exports.default = KitCommitPlugin;
+
+};
+
+__defs["plugin/plus-modals"] = function (module, exports, require) {
+'use strict';
+// [Plus] 복습 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
+const { Modal, Setting, Notice } = require('obsidian');
+const { grade } = require('../core/review');
+
+const firstChar = (answers) => [...(answers[1] || answers[0])][0] || '';
+
+class ReviewModal extends Modal {
+  constructor(app, plugin, cards) {
+    super(app);
+    this.plugin = plugin;
+    this.plus = plugin.plus;
+    this.cards = cards;
+    this.i = 0;
+    this.right = 0;
+    this.xp = 0;
+  }
+
+  t(k, v) {
+    return this.plugin.host.T.t(k, v);
+  }
+
+  onOpen() {
+    this.modalEl.addClass('vpp-modal');
+    this.render();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    this.plus.finish(this.right, this.i);
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    this.hinted = false;
+    if (!this.cards.length) {
+      this.titleEl.setText(this.t('plus.cmdReview'));
+      el.createEl('p', { text: this.t('plus.reviewEmpty') });
+      return;
+    }
+    if (this.i >= this.cards.length) {
+      el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { right: this.right, total: this.cards.length, xp: this.xp }) });
+      new Setting(el).addButton((b) => b.setButtonText('OK').setCta().onClick(() => this.close()));
+      return;
+    }
+    const c = this.cards[this.i];
+    this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
+    el.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reviewFrom', { name: this.plugin.settings.get('petName') }) });
+    el.createDiv({ cls: 'vpp-question', text: c.question });
+    const hintEl = el.createEl('p', { cls: 'vpp-hint' });
+    const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
+    const row = new Setting(el);
+    const snacks = this.plus.snackCount();
+    row.addButton((b) => {
+      b.setButtonText(snacks ? this.t('plus.hint', { n: snacks }) : this.t('plus.noSnack')).setDisabled(!snacks);
+      b.onClick(() => {
+        if (this.hinted || !this.plus.hint()) return;
+        this.hinted = true;
+        hintEl.setText(this.t('plus.hintShown', { c: firstChar(c.answers) }));
+        b.setDisabled(true);
+        input.focus();
+      });
+    });
+    row.addButton((b) => b.setButtonText(this.t('plus.submit')).setCta().onClick(() => this.check(input.value)));
+    // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 답이 아니다
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      this.check(input.value);
+    });
+    input.focus();
+  }
+
+  check(value) {
+    const c = this.cards[this.i];
+    const g = grade(value, c.answers);
+    if (g !== 'close') return this.settle(g);
+    const el = this.contentEl;
+    el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
+    el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
+    new Setting(el)
+      .addButton((b) => b.setButtonText(this.t('plus.markWrong')).onClick(() => this.settle('wrong')))
+      .addButton((b) => b.setButtonText(this.t('plus.markRight')).setCta().onClick(() => this.settle('right')));
+  }
+
+  settle(result) {
+    const c = this.cards[this.i];
+    const xp = this.plus.answer(c.key, result, this.hinted);
+    if (result === 'right') this.right++;
+    this.xp += xp;
+    const el = this.contentEl;
+    el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
+    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? `${this.t('plus.right', { xp })} · ${c.answers[0]}` : this.t('plus.wrong', { answer: c.answers[0] }) });
+    this.i++;
+    const next = () => this.render();
+    new Setting(el)
+      .addButton((b) =>
+        b.setButtonText(this.t('plus.open')).onClick(() => {
+          this.close();
+          this.app.workspace.openLinkText(c.path, '', false);
+        }),
+      )
+      .addButton((b) => {
+        b.setButtonText(this.t('plus.next')).setCta().onClick(next);
+        window.setTimeout(() => b.buttonEl.focus(), 0);
+      });
+  }
+}
+
+class TidyModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.plus = plugin.plus;
+  }
+
+  t(k, v) {
+    return this.plugin.host.T.t(k, v);
+  }
+
+  onOpen() {
+    this.modalEl.addClass('vpp-modal');
+    this.titleEl.setText(this.t('plus.tidyTitle'));
+    this.render();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  async render() {
+    const list = await this.plus.mentions();
+    const el = this.contentEl;
+    el.empty();
+    if (!list.length) {
+      el.createEl('p', { text: this.t('plus.tidyEmpty') });
+      return;
+    }
+    el.createEl('p', { cls: 'setting-item-description', text: this.t('plus.tidyIntro') });
+    for (const m of list) {
+      const box = el.createDiv({ cls: 'vpp-tidy' });
+      box.createEl('b', { text: m.path.replace(/\.md$/, '') });
+      box.createDiv({ cls: 'vpp-diff vpp-before', text: m.before });
+      box.createDiv({ cls: 'vpp-diff vpp-after', text: m.after });
+      new Setting(box).addButton((b) =>
+        b
+          .setButtonText(this.t('plus.tidyApply'))
+          .setCta()
+          .onClick(async () => {
+            b.setDisabled(true);
+            if (!(await this.plus.applyTidy(m))) new Notice(this.t('plus.tidyChanged'));
+            this.render();
+          }),
+      );
+    }
+  }
+}
+
+module.exports = { ReviewModal, TidyModal };
+
+};
+
+__defs["plugin/plus"] = function (module, exports, require) {
+'use strict';
+/*
+ * [Plus] 복습 · 링크 정리 · 원래 Vault Pet 기록 가져오기.
+ * 로직은 core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
+ * 노트를 고치는 건 applyTidy 하나뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
+ */
+const { TFile } = require('obsidian');
+const { cardOf, cardKeys, parseKey, clozeOf, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum, DAILY_CAP } = require('../core/review');
+const { findMentions, applyLink } = require('../core/tidy');
+const { FOODS } = require('../core/shop');
+const { loadSafe } = require('./safedata');
+
+const TIDY_XP = 20;
+const ORIGINAL_ID = 'vault-pet';
+// 할 카드 수 · 정리할 곳 수를 다시 세는 간격 (분). 노트를 전부 읽으니 자주 하지 않는다
+const RECOUNT_MIN = 10;
+// 사람이 앞에 있다고 볼 만큼 최근에 만졌고, 지금 막 치는 중은 아닐 때만 말을 건다
+const NUDGE_IDLE_S = [20, 600];
+
+const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0 };
+const TIDY_DEFAULT = { done: 0, open: 0, paid: {}, nudged: 0 };
+
+class Plus {
+  constructor(plugin) {
+    this.plugin = plugin;
+    this.minutes = 0;
+    const st = plugin.state;
+    st.set({ review: { ...REVIEW_DEFAULT, ...(st.get('review') || {}) }, tidy: { ...TIDY_DEFAULT, ...(st.get('tidy') || {}) } });
+  }
+
+  get host() {
+    return this.plugin.host;
+  }
+
+  review() {
+    return this.plugin.state.get('review');
+  }
+
+  tidy() {
+    return this.plugin.state.get('tidy');
+  }
+
+  setReview(patch) {
+    this.plugin.state.set({ review: { ...this.review(), ...patch } });
+  }
+
+  setTidy(patch) {
+    this.plugin.state.set({ tidy: { ...this.tidy(), ...patch } });
+  }
+
+  files() {
+    return this.plugin.app.vault.getMarkdownFiles().filter((f) => !this.plugin.isExcludedPath(f.path));
+  }
+
+  async notes() {
+    const out = [];
+    for (const f of this.files()) {
+      try {
+        out.push({ path: f.path, title: f.basename, text: await this.plugin.app.vault.cachedRead(f) });
+      } catch {
+        // 못 읽는 노트는 건너뛴다
+      }
+    }
+    return out;
+  }
+
+  // 진화 조건 (core/growth.js 의 habits)
+  habits() {
+    return { links: this.plugin.linkStats().total, correct: this.review().correct, floor: this.plugin.state.get('lastStage') || 0 };
+  }
+
+  /* ── 복습 ── */
+
+  // 덱을 지금 노트에 맞춘다 (제목 카드 + 형광펜 카드). 읽은 글은 돌려줘서 다시 읽지 않게
+  async syncDeck() {
+    const notes = await this.notes();
+    const r = this.review();
+    const deck = syncDeck(r.deck, notes.flatMap((n) => cardKeys(n.path, n.text)), dayNum(), !r.seeded);
+    const same = r.seeded && Object.keys(deck).length === Object.keys(r.deck).length && Object.keys(deck).every((k) => r.deck[k]);
+    if (!same) this.setReview({ deck, seeded: true });
+    return new Map(notes.map((n) => [n.path, n]));
+  }
+
+  rename(from, to) {
+    this.setReview({ deck: renameInDeck(this.review().deck, from, to) });
+  }
+
+  doneToday() {
+    const t = this.review().today;
+    return t.day === dayNum() ? t.n : 0;
+  }
+
+  // 오늘 낼 카드. 첫 단락이 없는 노트는 문제가 안 되니 건너뛰고 다음 카드를 채운다
+  async dueCards() {
+    const notes = await this.syncDeck();
+    const room = DAILY_CAP - this.doneToday();
+    const out = [];
+    for (const key of dueToday(this.review().deck, dayNum(), 0, Infinity)) {
+      if (out.length >= room) break;
+      const { path, highlight } = parseKey(key);
+      const note = notes.get(path);
+      if (!note) continue;
+      const card = highlight === null ? cardOf(note.title, note.text) : clozeOf(note.text, highlight);
+      if (card) out.push({ key, path, ...card });
+    }
+    this.setReview({ due: out.length });
+    return out;
+  }
+
+  // result: 'right' | 'wrong'. 힌트를 쓰고 맞힌 건 경험치 반 · 상자 그대로 · 진화용 '맞힌 수'에는 안 센다
+  answer(key, result, hinted) {
+    const r = this.review();
+    const today = dayNum();
+    const card = r.deck[key] || { b: 0, due: today };
+    this.setReview({
+      deck: { ...r.deck, [key]: schedule(card, result, today, hinted) },
+      done: r.done + 1,
+      correct: r.correct + (result === 'right' && !hinted ? 1 : 0),
+      today: { day: today, n: this.doneToday() + 1 },
+      days: r.days.includes(today) ? r.days : [...r.days, today].slice(-60),
+      due: Math.max(0, r.due - 1),
+    });
+    const xp = xpFor(result, hinted);
+    if (xp) this.host.gamify.grant(xp, { k: 'bonus.review', v: {} });
+    this.host.recomputeGrowth();
+    return xp;
+  }
+
+  finish(right, total) {
+    if (total) this.host.bubble(this.host.T.line('reviewDone', { right, total }), 'quest');
+  }
+
+  snacks() {
+    const pantry = this.plugin.state.get('pantry') || {};
+    return FOODS.filter((x) => x.group === 'snack' && pantry[x.key] > 0).sort((a, b) => a.price - b.price);
+  }
+
+  snackCount() {
+    const pantry = this.plugin.state.get('pantry') || {};
+    return this.snacks().reduce((n, x) => n + pantry[x.key], 0);
+  }
+
+  // 냄새 맡기: 제일 싼 간식 하나를 고양이에게 준다 (바닥에 떨어진 걸 먹으러 간다). 줬으면 true
+  hint() {
+    const [snack] = this.snacks();
+    return !!snack && this.host.giveFood(snack.key);
+  }
+
+  /* ── 링크 정리 ── */
+
+  async mentions() {
+    const list = findMentions(await this.notes());
+    this.setTidy({ open: list.length });
+    return list;
+  }
+
+  async applyTidy(m) {
+    const f = this.plugin.app.vault.getAbstractFileByPath(m.path);
+    if (!(f instanceof TFile)) return false;
+    let ok = false;
+    await this.plugin.app.vault.process(f, (text) => {
+      const out = applyLink(text, m);
+      ok = out !== null;
+      return ok ? out : text;
+    });
+    if (!ok) return false;
+    // 같은 노트 → 같은 대상은 한 번만 경험치 (링크를 지웠다 다시 이어도 또 주지 않는다)
+    const t = this.tidy();
+    const key = `${m.path}\n${m.target}`;
+    if (!t.paid[key]) {
+      this.setTidy({ paid: { ...t.paid, [key]: Date.now() }, done: t.done + 1 });
+      this.host.gamify.grant(TIDY_XP, { k: 'bonus.tidy', v: { target: m.target } });
+      this.host.recomputeGrowth();
+    }
+    return true;
+  }
+
+  /* ── 매분 ── */
+
+  async tick() {
+    if (this.minutes++ % RECOUNT_MIN === 0) {
+      await this.dueCards();
+      await this.mentions();
+    }
+    this.nudge();
+  }
+
+  // 하루에 한 번씩만 (복습 · 정리 따로). 방해 금지 중이면 다음 기회로
+  nudge() {
+    const p = this.plugin;
+    const idle = p.idleSeconds();
+    if (p.typing || idle < NUDGE_IDLE_S[0] || idle > NUDGE_IDLE_S[1] || this.host.isQuiet()) return;
+    const today = dayNum();
+    const T = this.host.T;
+    const r = this.review();
+    if (r.due > 0 && r.nudged !== today) {
+      this.setReview({ nudged: today });
+      return this.host.bubble(T.line('reviewNudge', { n: r.due }), 'quest', 'review');
+    }
+    const t = this.tidy();
+    if (t.open > 0 && t.nudged !== today) {
+      this.setTidy({ nudged: today });
+      this.host.bubble(T.line('tidyFound', { n: t.open }), 'quest', 'tidy');
+    }
+  }
+}
+
+// 처음 켰는데 자기 기록이 없으면 원래 Vault Pet 기록을 가져오고 원래 플러그인은 끈다 (레벨 · 업적 · 노트별 기록 그대로).
+// 원래 플러그인이 돌고 있으면 파일보다 새로운 메모리 속 기록을 바로 가져온다 (끌 때 저장이 끝나기를 기다리지 않아도 된다)
+async function importOriginal(plugin) {
+  const plugins = plugin.app.plugins;
+  const live = plugins && plugins.plugins && plugins.plugins[ORIGINAL_ID];
+  let raw = null;
+  if (live && live.settings && live.state && live.usage) {
+    raw = structuredClone({ version: 1, settings: live.settings.data, state: live.state.data, usage: live.usage.data, meta: live.meta });
+  } else {
+    const dir = plugin.manifest.dir.replace(/[^/]+$/, ORIGINAL_ID);
+    const found = await loadSafe(plugin.app.vault.adapter, dir).catch(() => ({ raw: null }));
+    raw = found.raw;
+  }
+  if (plugins && plugins.enabledPlugins && plugins.enabledPlugins.has(ORIGINAL_ID)) {
+    await (plugins.disablePluginAndSave ? plugins.disablePluginAndSave(ORIGINAL_ID) : plugins.disablePlugin(ORIGINAL_ID));
+  }
+  return raw && raw.settings ? raw : null;
+}
+
+module.exports = { Plus, importOriginal };
 
 };
 
@@ -16441,6 +17127,149 @@ __defs["kit/i18n"] = function (module, exports, require) {
     Object.assign(UI.en, a.en);
   }
   for (const [id, [name, desc]] of Object.entries(ACH_ZH)) Object.assign(UI.zh, { [`ach.${id}.name`]: name, [`ach.${id}.desc`]: desc });
+  for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+;
+// [Plus] 복습 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
+// 중국어는 이 포크를 쓰는 사람에 맞춰 번체로 적었다 (원판 zh 는 간체)
+(function (root) {
+  const I = typeof module === 'object' && module.exports && module.exports.UI ? module.exports : root.I18N;
+  if (!I) return;
+  const lines = (arr) => ({ angel: arr });
+
+  const LINE = {
+    ko: {
+      reviewNudge: lines(['오늘 복습할 카드가 {n}장 있어!||내가 글자를 좀 먹어 버렸거든', '복습 시간이야! {n}장만 같이 보자']),
+      reviewDone: lines(['{right}/{total} 맞혔어! 대단해', '오늘 복습 끝! {right}장 기억해 냈어']),
+      tidyFound: lines(['찾았다! 링크로 이으면 좋을 곳이 {n}군데 있어']),
+    },
+    en: {
+      reviewNudge: lines(['{n} cards to review today!||I may have eaten a few words', 'Review time! Just {n} cards together']),
+      reviewDone: lines(['{right}/{total} right! Amazing', 'Review done! You remembered {right}']),
+      tidyFound: lines(['Found something! {n} spots could become links']),
+    },
+    zh: {
+      reviewNudge: lines(['今天有 {n} 張卡片要複習！||我好像把一些字吃掉了', '複習時間到！一起看 {n} 張就好']),
+      reviewDone: lines(['答對 {right}/{total}！好厲害', '今天複習完畢！你記起了 {right} 張']),
+      tidyFound: lines(['我發現了東西！有 {n} 個地方可以連起來']),
+    },
+  };
+  for (const lang of Object.keys(LINE)) Object.assign(I.LINE[lang], LINE[lang]);
+
+  const UI = {
+    ko: {
+      'stage.cat2': '공부 고양이',
+      'stage.cat3': '현자 고양이',
+      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 맞힌 문제 {correct}/{needCorrect}',
+      'quest.review': '카드 {n}장 복습하기',
+      'quest.tidy': '링크 정리 {n}곳',
+      'bonus.review': '복습',
+      'bonus.tidy': '링크 정리: {target}',
+      'pet.linkReview': '눌러서 복습 시작',
+      'pet.linkTidy': '눌러서 보기',
+      'plus.trayReview': '복습 ({n})',
+      'plus.trayTidy': '링크 정리 ({n})',
+      'plus.cmdReview': '복습 시작',
+      'plus.cmdTidy': '링크 정리',
+      'plus.reviewTitle': '복습 {i}/{total}',
+      'plus.reviewEmpty': '오늘 복습할 카드가 없어요. 내일 또 와요!',
+      'plus.reviewFrom': '{name}이(가) 제목을 먹어 버렸어요. 무슨 노트일까요?',
+      'plus.placeholder': '노트 제목 (中文 · English · 약어 아무거나)',
+      'plus.submit': '확인',
+      'plus.hint': '냄새 맡기 (간식 1개 · 남은 간식 {n})',
+      'plus.noSnack': '간식이 없어요. 상점에서 사 오세요',
+      'plus.hintShown': '첫 글자는 「{c}」',
+      'plus.right': '정답! +{xp} XP',
+      'plus.wrong': '괜찮아요! 정답은 {answer}. 내일 한 번 더 만나요',
+      'plus.close': '거의 맞았어요. 정답은 {answer} — 맞은 걸로 할까요?',
+      'plus.markRight': '맞은 걸로',
+      'plus.markWrong': '틀린 걸로',
+      'plus.next': '다음',
+      'plus.open': '노트 열기',
+      'plus.summary': '{right}/{total} 맞혔어요 · +{xp} XP',
+      'plus.tidyTitle': '링크 정리',
+      'plus.tidyEmpty': '링크로 이을 곳이 없어요. 깔끔해요!',
+      'plus.tidyIntro': '다른 노트의 제목이 나오는데 링크가 아닌 곳이에요. 누른 것만 바꿔요.',
+      'plus.tidyApply': '링크로 바꾸기',
+      'plus.tidyChanged': '노트가 그사이 바뀌었어요. 다시 찾았어요',
+      'plus.imported': '원래 Vault Pet 기록을 가져왔어요 (Lv.{lv}). 원래 플러그인은 꺼 두었어요',
+    },
+    en: {
+      'stage.cat2': 'Scholar Cat',
+      'stage.cat3': 'Sage Cat',
+      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · correct {correct}/{needCorrect}',
+      'quest.review': 'Review {n} cards',
+      'quest.tidy': 'Tidy {n} links',
+      'bonus.review': 'Review',
+      'bonus.tidy': 'Tidy link: {target}',
+      'pet.linkReview': 'Click to review',
+      'pet.linkTidy': 'Click to see',
+      'plus.trayReview': 'Review ({n})',
+      'plus.trayTidy': 'Tidy links ({n})',
+      'plus.cmdReview': 'Start review',
+      'plus.cmdTidy': 'Tidy links',
+      'plus.reviewTitle': 'Review {i}/{total}',
+      'plus.reviewEmpty': 'Nothing to review today. See you tomorrow!',
+      'plus.reviewFrom': '{name} ate the title. Which note is this?',
+      'plus.placeholder': 'Note title (any part works)',
+      'plus.submit': 'Check',
+      'plus.hint': 'Sniff (1 snack · {n} left)',
+      'plus.noSnack': 'No snacks left. Buy some in the shop',
+      'plus.hintShown': 'It starts with “{c}”',
+      'plus.right': 'Right! +{xp} XP',
+      'plus.wrong': 'That’s okay! It was {answer}. You’ll see it again tomorrow',
+      'plus.close': 'Almost. It was {answer} — count it as right?',
+      'plus.markRight': 'Count as right',
+      'plus.markWrong': 'Count as wrong',
+      'plus.next': 'Next',
+      'plus.open': 'Open note',
+      'plus.summary': '{right}/{total} right · +{xp} XP',
+      'plus.tidyTitle': 'Tidy links',
+      'plus.tidyEmpty': 'Nothing to link. All tidy!',
+      'plus.tidyIntro': 'Another note’s title appears here without a link. Only the ones you click change.',
+      'plus.tidyApply': 'Make it a link',
+      'plus.tidyChanged': 'The note changed meanwhile. Searched again',
+      'plus.imported': 'Brought over your Vault Pet save (Lv.{lv}). The original plugin is now off',
+    },
+    zh: {
+      'stage.cat2': '學習貓',
+      'stage.cat3': '賢者貓',
+      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 答對 {correct}/{needCorrect}',
+      'quest.review': '複習 {n} 張卡片',
+      'quest.tidy': '整理 {n} 處連結',
+      'bonus.review': '複習',
+      'bonus.tidy': '整理連結：{target}',
+      'pet.linkReview': '點我開始複習',
+      'pet.linkTidy': '點我看看',
+      'plus.trayReview': '複習（{n}）',
+      'plus.trayTidy': '整理連結（{n}）',
+      'plus.cmdReview': '開始複習',
+      'plus.cmdTidy': '整理連結',
+      'plus.reviewTitle': '複習 {i}/{total}',
+      'plus.reviewEmpty': '今天沒有要複習的卡片，明天再來！',
+      'plus.reviewFrom': '{name}把標題吃掉了，這是哪篇筆記？',
+      'plus.placeholder': '筆記標題（中文、英文或縮寫都可以）',
+      'plus.submit': '確認',
+      'plus.hint': '嗅覺（用掉 1 個零食 · 還有 {n} 個）',
+      'plus.noSnack': '沒有零食了，去商店買一些吧',
+      'plus.hintShown': '第一個字是「{c}」',
+      'plus.right': '答對了！+{xp} XP',
+      'plus.wrong': '沒關係！答案是 {answer}，明天再見它一次',
+      'plus.close': '差一點！答案是 {answer}，要算你對嗎？',
+      'plus.markRight': '算我對',
+      'plus.markWrong': '算我錯',
+      'plus.next': '下一題',
+      'plus.open': '打開筆記',
+      'plus.summary': '答對 {right}/{total} · +{xp} XP',
+      'plus.tidyTitle': '整理連結',
+      'plus.tidyEmpty': '沒有可以連起來的地方，很整齊！',
+      'plus.tidyIntro': '這些地方提到了其他筆記的標題，但還不是連結。只會改你按下的那一筆。',
+      'plus.tidyApply': '改成連結',
+      'plus.tidyChanged': '筆記剛剛被改過了，已重新搜尋',
+      'plus.imported': '已匯入原本 Vault Pet 的存檔（Lv.{lv}），原版外掛已停用',
+    },
+  };
   for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
@@ -28625,6 +29454,150 @@ module.exports.run = function run(window, document, pet, kind) {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 ;if (window.PetSprite !== undefined) PetSprite = window.PetSprite; if (window.PixelArt !== undefined) PixelArt = window.PixelArt; if (window.I18N !== undefined) I18N = window.I18N; if (window.PetFriends !== undefined) PetFriends = window.PetFriends; if (window.PetToys !== undefined) PetToys = window.PetToys; if (window.PetSound !== undefined) PetSound = window.PetSound; if (window.ToyKit !== undefined) ToyKit = window.ToyKit;
+/* kit/i18n-plus.js */
+// [Plus] 복습 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
+// 중국어는 이 포크를 쓰는 사람에 맞춰 번체로 적었다 (원판 zh 는 간체)
+(function (root) {
+  const I = typeof module === 'object' && module.exports && module.exports.UI ? module.exports : root.I18N;
+  if (!I) return;
+  const lines = (arr) => ({ angel: arr });
+
+  const LINE = {
+    ko: {
+      reviewNudge: lines(['오늘 복습할 카드가 {n}장 있어!||내가 글자를 좀 먹어 버렸거든', '복습 시간이야! {n}장만 같이 보자']),
+      reviewDone: lines(['{right}/{total} 맞혔어! 대단해', '오늘 복습 끝! {right}장 기억해 냈어']),
+      tidyFound: lines(['찾았다! 링크로 이으면 좋을 곳이 {n}군데 있어']),
+    },
+    en: {
+      reviewNudge: lines(['{n} cards to review today!||I may have eaten a few words', 'Review time! Just {n} cards together']),
+      reviewDone: lines(['{right}/{total} right! Amazing', 'Review done! You remembered {right}']),
+      tidyFound: lines(['Found something! {n} spots could become links']),
+    },
+    zh: {
+      reviewNudge: lines(['今天有 {n} 張卡片要複習！||我好像把一些字吃掉了', '複習時間到！一起看 {n} 張就好']),
+      reviewDone: lines(['答對 {right}/{total}！好厲害', '今天複習完畢！你記起了 {right} 張']),
+      tidyFound: lines(['我發現了東西！有 {n} 個地方可以連起來']),
+    },
+  };
+  for (const lang of Object.keys(LINE)) Object.assign(I.LINE[lang], LINE[lang]);
+
+  const UI = {
+    ko: {
+      'stage.cat2': '공부 고양이',
+      'stage.cat3': '현자 고양이',
+      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 맞힌 문제 {correct}/{needCorrect}',
+      'quest.review': '카드 {n}장 복습하기',
+      'quest.tidy': '링크 정리 {n}곳',
+      'bonus.review': '복습',
+      'bonus.tidy': '링크 정리: {target}',
+      'pet.linkReview': '눌러서 복습 시작',
+      'pet.linkTidy': '눌러서 보기',
+      'plus.trayReview': '복습 ({n})',
+      'plus.trayTidy': '링크 정리 ({n})',
+      'plus.cmdReview': '복습 시작',
+      'plus.cmdTidy': '링크 정리',
+      'plus.reviewTitle': '복습 {i}/{total}',
+      'plus.reviewEmpty': '오늘 복습할 카드가 없어요. 내일 또 와요!',
+      'plus.reviewFrom': '{name}이(가) 제목을 먹어 버렸어요. 무슨 노트일까요?',
+      'plus.placeholder': '노트 제목 (中文 · English · 약어 아무거나)',
+      'plus.submit': '확인',
+      'plus.hint': '냄새 맡기 (간식 1개 · 남은 간식 {n})',
+      'plus.noSnack': '간식이 없어요. 상점에서 사 오세요',
+      'plus.hintShown': '첫 글자는 「{c}」',
+      'plus.right': '정답! +{xp} XP',
+      'plus.wrong': '괜찮아요! 정답은 {answer}. 내일 한 번 더 만나요',
+      'plus.close': '거의 맞았어요. 정답은 {answer} — 맞은 걸로 할까요?',
+      'plus.markRight': '맞은 걸로',
+      'plus.markWrong': '틀린 걸로',
+      'plus.next': '다음',
+      'plus.open': '노트 열기',
+      'plus.summary': '{right}/{total} 맞혔어요 · +{xp} XP',
+      'plus.tidyTitle': '링크 정리',
+      'plus.tidyEmpty': '링크로 이을 곳이 없어요. 깔끔해요!',
+      'plus.tidyIntro': '다른 노트의 제목이 나오는데 링크가 아닌 곳이에요. 누른 것만 바꿔요.',
+      'plus.tidyApply': '링크로 바꾸기',
+      'plus.tidyChanged': '노트가 그사이 바뀌었어요. 다시 찾았어요',
+      'plus.imported': '원래 Vault Pet 기록을 가져왔어요 (Lv.{lv}). 원래 플러그인은 꺼 두었어요',
+    },
+    en: {
+      'stage.cat2': 'Scholar Cat',
+      'stage.cat3': 'Sage Cat',
+      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · correct {correct}/{needCorrect}',
+      'quest.review': 'Review {n} cards',
+      'quest.tidy': 'Tidy {n} links',
+      'bonus.review': 'Review',
+      'bonus.tidy': 'Tidy link: {target}',
+      'pet.linkReview': 'Click to review',
+      'pet.linkTidy': 'Click to see',
+      'plus.trayReview': 'Review ({n})',
+      'plus.trayTidy': 'Tidy links ({n})',
+      'plus.cmdReview': 'Start review',
+      'plus.cmdTidy': 'Tidy links',
+      'plus.reviewTitle': 'Review {i}/{total}',
+      'plus.reviewEmpty': 'Nothing to review today. See you tomorrow!',
+      'plus.reviewFrom': '{name} ate the title. Which note is this?',
+      'plus.placeholder': 'Note title (any part works)',
+      'plus.submit': 'Check',
+      'plus.hint': 'Sniff (1 snack · {n} left)',
+      'plus.noSnack': 'No snacks left. Buy some in the shop',
+      'plus.hintShown': 'It starts with “{c}”',
+      'plus.right': 'Right! +{xp} XP',
+      'plus.wrong': 'That’s okay! It was {answer}. You’ll see it again tomorrow',
+      'plus.close': 'Almost. It was {answer} — count it as right?',
+      'plus.markRight': 'Count as right',
+      'plus.markWrong': 'Count as wrong',
+      'plus.next': 'Next',
+      'plus.open': 'Open note',
+      'plus.summary': '{right}/{total} right · +{xp} XP',
+      'plus.tidyTitle': 'Tidy links',
+      'plus.tidyEmpty': 'Nothing to link. All tidy!',
+      'plus.tidyIntro': 'Another note’s title appears here without a link. Only the ones you click change.',
+      'plus.tidyApply': 'Make it a link',
+      'plus.tidyChanged': 'The note changed meanwhile. Searched again',
+      'plus.imported': 'Brought over your Vault Pet save (Lv.{lv}). The original plugin is now off',
+    },
+    zh: {
+      'stage.cat2': '學習貓',
+      'stage.cat3': '賢者貓',
+      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 答對 {correct}/{needCorrect}',
+      'quest.review': '複習 {n} 張卡片',
+      'quest.tidy': '整理 {n} 處連結',
+      'bonus.review': '複習',
+      'bonus.tidy': '整理連結：{target}',
+      'pet.linkReview': '點我開始複習',
+      'pet.linkTidy': '點我看看',
+      'plus.trayReview': '複習（{n}）',
+      'plus.trayTidy': '整理連結（{n}）',
+      'plus.cmdReview': '開始複習',
+      'plus.cmdTidy': '整理連結',
+      'plus.reviewTitle': '複習 {i}/{total}',
+      'plus.reviewEmpty': '今天沒有要複習的卡片，明天再來！',
+      'plus.reviewFrom': '{name}把標題吃掉了，這是哪篇筆記？',
+      'plus.placeholder': '筆記標題（中文、英文或縮寫都可以）',
+      'plus.submit': '確認',
+      'plus.hint': '嗅覺（用掉 1 個零食 · 還有 {n} 個）',
+      'plus.noSnack': '沒有零食了，去商店買一些吧',
+      'plus.hintShown': '第一個字是「{c}」',
+      'plus.right': '答對了！+{xp} XP',
+      'plus.wrong': '沒關係！答案是 {answer}，明天再見它一次',
+      'plus.close': '差一點！答案是 {answer}，要算你對嗎？',
+      'plus.markRight': '算我對',
+      'plus.markWrong': '算我錯',
+      'plus.next': '下一題',
+      'plus.open': '打開筆記',
+      'plus.summary': '答對 {right}/{total} · +{xp} XP',
+      'plus.tidyTitle': '整理連結',
+      'plus.tidyEmpty': '沒有可以連起來的地方，很整齊！',
+      'plus.tidyIntro': '這些地方提到了其他筆記的標題，但還不是連結。只會改你按下的那一筆。',
+      'plus.tidyApply': '改成連結',
+      'plus.tidyChanged': '筆記剛剛被改過了，已重新搜尋',
+      'plus.imported': '已匯入原本 Vault Pet 的存檔（Lv.{lv}），原版外掛已停用',
+    },
+  };
+  for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+;if (window.PetSprite !== undefined) PetSprite = window.PetSprite; if (window.PixelArt !== undefined) PixelArt = window.PixelArt; if (window.I18N !== undefined) I18N = window.I18N; if (window.PetFriends !== undefined) PetFriends = window.PetFriends; if (window.PetToys !== undefined) PetToys = window.PetToys; if (window.PetSound !== undefined) PetSound = window.PetSound; if (window.ToyKit !== undefined) ToyKit = window.ToyKit;
 /* kit/pixelart.js */
 // 앱에서 쓰는 아이콘을 전부 도트로 찍는다. 이모지는 기기·폰트마다 모양이 달라서
 // 픽셀 캐릭터와 결이 안 맞는다. 그래서 아이콘은 하나도 빠짐없이 여기 손으로 찍어 둔다.
@@ -32268,6 +33241,10 @@ module.exports.run = function run(window, document, pet, kind) {
       },
     },
   };
+
+  // [Plus] 진화 단계도 같은 도트를 쓴다. 단계마다 커지는 건 plugin/host.js 의 effScale
+  STAGE.cat2 = STAGE.cat;
+  STAGE.cat3 = STAGE.cat;
 
   // ---------- 귀 모양 (2026-10-10) ----------
   // 처음 시작할 때(그리고 옷장에서) 고르는 귀 13가지. 몸 테두리와 코스튬 기준점은 그대로 두고 맨 위 세 줄(귀 칸)만 바꾼다.
@@ -52220,7 +53197,7 @@ const queue = [];
 let current = null;
 let hideTimer = null;
 let typeTimer = null;
-const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe' };
+const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe', review: 'pet.linkReview', tidy: 'pet.linkTidy' };
 // 말풍선 종류마다 앞에 붙는 도트 아이콘. 없으면 아이콘 없이 글만 나온다
 // 말풍선 앞 아이콘은 무슨 말인지 알려 줄 때만 (보상 · 밥 · 알림 · 쉬자 · 늦은 밤 · 팁).
 // 쓰다듬기 반응 · 수다 · 인사처럼 그냥 하는 말에는 안 붙인다 (2026-09-25)
@@ -59277,12 +60254,12 @@ const TABS = {
         <div class="road">${D.stages
           .map((s, i) => {
             const cls = !g ? 'locked' : i < g.stageIndex ? 'done' : i === g.stageIndex ? 'now' : 'locked';
-            return `<div class="step ${cls}"><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">${fmt(s.min)}</span></div>`;
+            return `<div class="step ${cls}"><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">Lv.${s.need.level}</span></div>`;
           })
           .join('')}</div>
         <div class="bar" style="margin-top:10px"><i style="width:${g ? g.progress * 100 : 0}%"></i></div>
         <p class="center muted" style="margin:8px 0 0">${
-          g ? (g.nextStageKey ? t('home.toNext', { stage: esc(stageName(g.nextStageKey)), xp: fmt(g.xpToNext) }) : t('home.grown')) : t('home.reading')
+          g ? (g.nextStageKey ? t('home.toNextPlus', { stage: esc(stageName(g.nextStageKey)), lv: g.level, needLv: g.nextNeed.level, links: g.have.links, needLinks: g.nextNeed.links, correct: g.have.correct, needCorrect: g.nextNeed.correct }) : t('home.grown')) : t('home.reading')
         }</p>
       </div>`;
     // 오늘 숫자 카드에 소제목을 달고, 자주 켜고 끄는 방해 금지는 그 줄 오른쪽에 둔다

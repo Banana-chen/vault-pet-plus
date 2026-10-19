@@ -271,8 +271,10 @@ class KitHost {
 
   // ---------- 펫 무대 ----------
 
+  // [Plus] 진화 단계마다 15%씩 커진다 (새 도트는 아직 없다)
   effScale() {
-    return 1 + (scaleStep(this.settings.get('scale')) - 1) * 0.5;
+    const stage = this.growth ? this.growth.stageIndex : 0;
+    return (1 + (scaleStep(this.settings.get('scale')) - 1) * 0.5) * (1 + 0.15 * stage);
   }
 
   catStartX() {
@@ -342,6 +344,9 @@ class KitHost {
 
 
   openHouse(tab) {
+    // [Plus] 말풍선 · 메뉴의 'review' · 'tidy' 는 하우스 탭이 아니라 복습 · 정리 창
+    if (tab === 'review') return this.plugin.openReview();
+    if (tab === 'tidy') return this.plugin.openTidy();
     this.plugin.openHouse(tab);
   }
 
@@ -412,6 +417,12 @@ class KitHost {
     return [
       { title: T.t('tray.house'), icon: 'home', click: () => this.openHouse() },
       { title: T.t('tray.quests'), icon: 'scroll', click: () => this.openHouse('quests') },
+      ...(this.plugin.plus
+        ? [
+            { title: T.t('plus.trayReview', { n: this.plugin.plus.review().due }), icon: 'check', click: () => this.openHouse('review') },
+            { title: T.t('plus.trayTidy', { n: this.plugin.plus.tidy().open }), icon: 'sparkle', click: () => this.openHouse('tidy') },
+          ]
+        : []),
       { sep: true },
       this.isQuiet() ? { title: T.t('tray.quietOff'), icon: 'bell', click: () => this.setQuiet(0) } : { title: T.t('tray.quietOn'), icon: 'bellOff', click: () => this.setQuiet(60) },
       visible ? { title: T.t('tray.hide'), icon: 'moon', click: () => this.hideFor(60 * MIN) } : { title: T.t('tray.show'), icon: 'eye', click: () => this.showPet() },
@@ -973,10 +984,11 @@ class KitHost {
     const silent = !gamify.st.initialized;
     const since = state.get('startedAt') || 0;
     const bonus = (s) => gamify.bonusXp(s);
-    let g = computeGrowth(since, usage, bonus);
+    const habits = this.plugin.plus ? this.plugin.plus.habits() : {};
+    let g = computeGrowth(since, usage, bonus, habits);
     for (let i = 0; i < 4; i++) {
       gamify.evaluate(g, silent);
-      const next = computeGrowth(since, usage, bonus);
+      const next = computeGrowth(since, usage, bonus, habits);
       if (next.xp === g.xp) break;
       g = next;
     }
@@ -989,6 +1001,7 @@ class KitHost {
     if (lastLevel != null) {
       const name = settings.get('petName');
       if (g.stageIndex > lastStage) {
+        this.send('pet:config', this.petConfig());
         this.send('pet:action', 'evolve');
         this.sound('evolve');
         this.later(() => this.bubble(this.T.line('grow', { name, stage: this.stageName(g) }), 'grow'), 1700);
@@ -1214,6 +1227,7 @@ class KitHost {
     this.friendTick();
     this.gamify.tick(this.brain.lastActivity, this.brain.streakMs());
     this.recomputeGrowth();
+    if (this.plugin.plus) this.plugin.plus.tick().catch((e) => console.error('[Vault Pet Plus] tick', e));
   }
 
   // 5초마다

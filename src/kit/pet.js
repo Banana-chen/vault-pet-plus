@@ -160,7 +160,7 @@ const queue = [];
 let current = null;
 let hideTimer = null;
 let typeTimer = null;
-const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe' };
+const LINK_HINT = { achievements: 'pet.linkAchievements', quests: 'pet.linkQuests', wardrobe: 'pet.linkWardrobe', review: 'pet.linkReview', tidy: 'pet.linkTidy' };
 // 말풍선 종류마다 앞에 붙는 도트 아이콘. 없으면 아이콘 없이 글만 나온다
 // 말풍선 앞 아이콘은 무슨 말인지 알려 줄 때만 (보상 · 밥 · 알림 · 쉬자 · 늦은 밤 · 팁).
 // 쓰다듬기 반응 · 수다 · 인사처럼 그냥 하는 말에는 안 붙인다 (2026-09-25)
