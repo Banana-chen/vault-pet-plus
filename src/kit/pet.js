@@ -1984,7 +1984,7 @@ let fcardPos = null;
 let fcardDrag = null;
 
 pet.onFriend((f) => startFriend(f));
-pet.onFriendLeave(() => friend && friendBye(true));
+pet.onFriendLeave((w) => friend && (!w || !w.id || w.id === friend.id) && friendBye(true));
 pet.onFriendWear((w) => friend && friend.r && friend.id === w.id && friend.r.setAccessory(w.wear));
 
 function friendName(id) {

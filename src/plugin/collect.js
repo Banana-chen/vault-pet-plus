@@ -140,10 +140,12 @@ class Collector {
     this.dismissStray();
   }
 
-  // 길고양이를 내보낸다 (떠남 · 달아남 · 데려옴)
+  // 길고양이를 내보낸다 (떠남 · 달아남 · 데려옴).
+  // 펫 판에는 늘 알린다: shown 은 펫 판을 새로 만들면(petReloaded) 비는데, 그 사이에 보낸 길고양이가 남아 있을 수 있다.
+  // id 를 붙여 동네 친구는 건드리지 않는다
   dismissStray() {
     this.set(C.endStray(this.herd()));
-    if (this.shown) this.host.send('pet:friend-leave');
+    this.host.send('pet:friend-leave', { id: 'stray' });
     this.shown = null;
   }
 
@@ -219,6 +221,8 @@ class Collector {
 
   strayTick(now, today) {
     let s = this.herd();
+    // 길고양이가 다른 곳(동기화 등)에서 지워졌는데 펫 판에는 남아 있다
+    if (!s.stray && this.shown) return this.dismissStray();
     if (s.stray && !C.strayHere(s, now)) return this.dismissStray();
     if (s.stray) return this.showStray();
     if (!C.ticketDue(s, today) || !this.present()) return;

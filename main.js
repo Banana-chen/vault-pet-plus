@@ -1,5 +1,5 @@
 /*
- * Vault Pet 1.5.1-plus.0 — Obsidian plugin (built 2026-10-19)
+ * Vault Pet 1.5.1-plus.0 — Obsidian plugin (built 2026-11-03)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -5273,10 +5273,12 @@ class Collector {
     this.dismissStray();
   }
 
-  // 길고양이를 내보낸다 (떠남 · 달아남 · 데려옴)
+  // 길고양이를 내보낸다 (떠남 · 달아남 · 데려옴).
+  // 펫 판에는 늘 알린다: shown 은 펫 판을 새로 만들면(petReloaded) 비는데, 그 사이에 보낸 길고양이가 남아 있을 수 있다.
+  // id 를 붙여 동네 친구는 건드리지 않는다
   dismissStray() {
     this.set(C.endStray(this.herd()));
-    if (this.shown) this.host.send('pet:friend-leave');
+    this.host.send('pet:friend-leave', { id: 'stray' });
     this.shown = null;
   }
 
@@ -5352,6 +5354,8 @@ class Collector {
 
   strayTick(now, today) {
     let s = this.herd();
+    // 길고양이가 다른 곳(동기화 등)에서 지워졌는데 펫 판에는 남아 있다
+    if (!s.stray && this.shown) return this.dismissStray();
     if (s.stray && !C.strayHere(s, now)) return this.dismissStray();
     if (s.stray) return this.showStray();
     if (!C.ticketDue(s, today) || !this.present()) return;
@@ -7894,6 +7898,15 @@ class HouseView extends ItemView {
     fw.addEventListener('mousedown', () => {
       if (ws.getActiveViewOfType(HouseView) !== this) ws.setActiveLeaf(this.leaf, { focus: false });
     }, { capture: true });
+    // 하우스 iframe 안의 마우스는 옵시디언 document 로 안 올라온다. 펫 무대(stage.forward)에 직접 넘겨야
+    // 하우스 위를 걷는 고양이에 마우스가 닿았는지 알고 쓰다듬기 · 집기를 받는다
+    fw.addEventListener('mousemove', (e) => {
+      const stage = this.plugin.stage;
+      const ifr = this.frame && this.frame.iframe;
+      if (!stage || !ifr || ifr.ownerDocument !== document) return; // 팝아웃 창의 하우스는 펫 무대와 다른 창
+      const r = ifr.getBoundingClientRect();
+      stage.forward({ clientX: e.clientX + r.left, clientY: e.clientY + r.top, screenX: e.screenX, screenY: e.screenY, buttons: e.buttons, target: e.target });
+    }, { passive: true });
     fw.addEventListener('keydown', (e) => {
       if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
       if (!(e.ctrlKey || e.metaKey || e.altKey) && !/^F\d+$/.test(e.key)) return;
@@ -8238,7 +8251,10 @@ class KitCommitPlugin extends Plugin {
   // 길고양이 길들이기 (바탕화면의 길고양이 · 말풍선을 누르면). 이미 떠났으면 알려만 준다
   async openTame() {
     const stray = this.collect.stray();
-    if (!stray) return new Notice(this.host.T.t('tame.gone'));
+    if (!stray) {
+      this.collect.dismissStray(); // 펫 판에 남은 길고양이도 내보낸다
+      return new Notice(this.host.T.t('tame.gone'));
+    }
     new TameModal(this.app, this, stray, await this.plus.randomCards(3)).open();
   }
 
@@ -58238,7 +58254,7 @@ let fcardPos = null;
 let fcardDrag = null;
 
 pet.onFriend((f) => startFriend(f));
-pet.onFriendLeave(() => friend && friendBye(true));
+pet.onFriendLeave((w) => friend && (!w || !w.id || w.id === friend.id) && friendBye(true));
 pet.onFriendWear((w) => friend && friend.r && friend.id === w.id && friend.r.setAccessory(w.wear));
 
 function friendName(id) {

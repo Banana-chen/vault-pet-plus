@@ -209,6 +209,34 @@ test('peak: 진화 바닥은 고양이마다 (다른 고양이 단계가 옮아�
   assert.strictEqual(C.notePeak(s, 1).cats.cheese.peak, 2, '내려가지 않는다');
 });
 
+/* ── 바탕화면의 길고양이 (plugin/collect.js) ── */
+
+// 펫 판에 보낸 것만 기록하는 가짜 플러그인
+function fakeCollector(herd) {
+  const { Collector } = require(path.join(src, 'plugin/collect'));
+  const data = { herd };
+  const sent = [];
+  const plugin = { state: { get: (k) => data[k], set: (o) => Object.assign(data, o) }, host: { send: (ch, p) => sent.push([ch, p]) } };
+  return { col: new Collector(plugin), sent, data };
+}
+
+test('dismissStray: 펫 판을 새로 만든 직후(shown 없음)에도 길고양이를 내보낸다', () => {
+  const { col, sent, data } = fakeCollector({ ...C.seed({}, 0), stray: { breed: 'twin', at: 1, until: Date.now() + 60_000 } });
+  col.petReloaded();
+  col.runAway();
+  assert.strictEqual(data.herd.stray, null);
+  assert.deepStrictEqual(sent, [['pet:friend-leave', { id: 'stray' }]]);
+});
+
+test('strayTick: 다른 곳에서 길고양이가 지워졌으면 펫 판에서도 내보낸다', () => {
+  const { col, sent, data } = fakeCollector({ ...C.seed({}, 0), stray: { breed: 'twin', at: 1, until: Date.now() + 60_000 } });
+  col.shown = 1;
+  data.herd = { ...data.herd, stray: null };
+  col.strayTick(Date.now(), 0);
+  assert.deepStrictEqual(sent, [['pet:friend-leave', { id: 'stray' }]]);
+  assert.strictEqual(col.shown, null);
+});
+
 (async () => {
   let pass = 0;
   for (const t of tests) {
