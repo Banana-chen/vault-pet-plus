@@ -7,6 +7,8 @@
 //  - 단짝 고양이 친구에게는 보물 공방에서 만든 코스튬을 선물할 수 있다 (2026-09-25). 선물하면 내 인벤토리에서 빠지고,
 //    친구는 칸마다 하나씩 입는다. 같은 칸에 새 옷을 주면 먼저 입던 옷은 사라진다. 다른 친구에게 주려면 공방에서 다시 만든다
 // 이름·별명·TMI·수다는 renderer/i18n.js 의 'friend.<id>.*', 그림은 renderer/friends.js (고양이 셋은 sprite.js 의 GUEST_FURS)
+// 2.2.0: 2.0.0 에 없앴다가 돌아왔다 (이슈 #9). 설정 friendsOn 을 끄면 host 가 tick 을 안 부르고, 와 있던 친구는 돌려보낸다.
+//  공방(workshopOn)을 껐으면 돌아갈 때 보물을 두고 가지 않는다 (noGift)
 const { find: findTreasure } = require('./treasure');
 const { ACCESSORIES, COSTUME_SLOTS } = require('./shop');
 
@@ -101,7 +103,7 @@ class Friends {
   tick(ctx = {}) {
     const s = this.st();
     const now = Date.now();
-    if (s.visit && s.visit.until <= now) this.left = this.finish({ keep: true });
+    if (s.visit && s.visit.until <= now) this.left = this.finish({ keep: true, noGift: ctx.noGift });
     // 배가 든든하면(ctx.full) 30분 일찍 온다 = 1시간 반쯤마다 (2026-10-10, 배부름은 덤)
     if (this.current() || now < s.nextAt - (ctx.full ? FULL_EARLY_MS : 0) || ctx.away || ctx.busy) return null;
     return this.start(pick(FRIENDS).id, 'visit');
@@ -128,17 +130,23 @@ class Friends {
   // 돌아간다 (시간이 다 됐거나 앱이 보냈다). 가끔 보물을 두고 간다.
   //  keep = 바닥에 떨어뜨릴 펫 창이 없을 때(main 이 보낼 때): 보물을 상자에 바로 넣는다 (kept: true)
   //  아니면 펫 창이 바닥에 떨어뜨리고, 주우면 pet:treasure 로 들어온다
+  //  noGift = 보물을 두고 가지 않는다 (공방을 껐을 때, 2.2.0)
   finish(opts = {}) {
     const v = this.st().visit;
     if (!v) return null;
     const lv = levelOf(this.one(v.id).pts);
     const f = FRIENDS.find((x) => x.id === v.id);
-    const gift = f && Math.random() < GIFT_CHANCE[lv] ? pick(f.likes) : null;
+    const gift = f && !opts.noGift && Math.random() < GIFT_CHANCE[lv] ? pick(f.likes) : null;
     const patch = { visit: null, nextAt: Date.now() + VISIT_GAP_MS + rint(-20, 20) * 60_000 };
     if (v.kind === 'call') patch.callReadyAt = Date.now() + CALL_COOLDOWN_MS;
     this.save(patch);
     if (gift && opts.keep) this.keepGift(gift);
     return { id: v.id, gift, kept: !!(gift && opts.keep) };
+  }
+
+  // 설정에서 친구를 다시 켰다 (2.2.0). 꺼 둔 사이 다음 방문 때가 지났으면 켜자마자 오지 않게 처음 켤 때처럼 20분~두 시간 뒤로
+  resume() {
+    if ((this.st().nextAt || 0) < Date.now()) this.save({ nextAt: Date.now() + rint(20, 120) * 60_000 });
   }
 
   // tick 이 보낸 친구 (한 번만 꺼낸다). 없으면 null

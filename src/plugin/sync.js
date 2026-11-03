@@ -21,8 +21,10 @@
 
 const DEVICE_SETTINGS = ['position', 'showPet', 'houseInSidebar', 'lowPower'];
 const DEVICE_STATE = [
-  'quietUntil', 'focus', 'focusQuiet', 'lastVersion', 'whatsNew', 'ui', 'temper', 'news', 'lineMemory', 'brainDaily', 'eventLog',
-  'craving', 'pending', 'replies', 'recapNudged', 'refundNote', 'toyOffers', 'guests', 'lastFood', 'lastMeal', 'eventLoot',
+  'quietUntil', 'focus', 'focusQuiet', 'focusBreak', 'lastVersion', 'whatsNew', 'ui', 'lineMemory', 'brainDaily',
+  'pending', 'replies', 'recapNudged', 'refundNote', 'toyOffers', 'lastFood', 'lastMeal',
+  // 2.2.0: 돌아온 깜짝 이벤트 · 친구의 기기 몫 (오늘 이벤트 횟수 · 이 기기 바닥에 떨어진 보물 · 1.x 손님 기록)
+  'eventLog', 'eventLoot', 'guests',
 ];
 const TIMED_STATE = ['gauge', 'life'];
 const HISTORY_MAX = 12;
@@ -144,6 +146,22 @@ const QUESTS = custom((b, l, r) => {
   if (l.id !== r.id) return num(r.at) > num(l.at) ? r : l;
   return { ...l, claimed: [...new Set([...(l.claimed || []), ...(r.claimed || [])])] };
 });
+// 홈의 할 일 (2.0.0, core/todos.js): id 로 합친다. 같은 할 일은 늦게 고친 쪽, 어느 쪽이든 지운 할 일(todoTomb)은 뺀다.
+// 순서는 내 목록 순서에 상대에만 있는 것을 뒤에 붙인다
+const TODOS = custom((b, l, r, ctx) => {
+  if (!Array.isArray(l)) return r;
+  if (!Array.isArray(r)) return l;
+  const gone = new Set([...(ctx.tombs || [])]);
+  const theirs = new Map(r.filter(isObj).map((x) => [x.id, x]));
+  const out = [];
+  for (const x of l.filter(isObj)) {
+    const y = theirs.get(x.id);
+    theirs.delete(x.id);
+    out.push(y && num(y.up) > num(x.up) ? y : x);
+  }
+  out.push(...theirs.values());
+  return out.filter((x) => !gone.has(x.id));
+});
 // [날짜, 그날 횟수] 짝: 늦은 날 쪽, 같은 날이면 횟수를 합친다
 const dayPair = (dayKey, countKey) => (b, l, r, ctx) => {
   const dl = l[dayKey] || '';
@@ -196,23 +214,27 @@ const STATE = objOf({
   pantry: mapOf(SUM), treasures: mapOf(SUM), cnt: mapOf(SUM),
   focusStats: objOf({ n: SUM, min: SUM, last: MAX }),
   purchaseStats: objOf({ v: MAX }, DEEP_SUM),
+  // 동네 친구 (2.2.0 에 돌아왔다): 친밀도 · 방문 횟수는 늘어난 만큼, 지금 놀러 온 친구 · 다음 방문 · 부르기 쉬는 시간은 기기마다
   friends: objOf({ list: mapOf(objOf({ pts: SUM, visits: SUM, lastAt: MAX })), visit: DEVICE, nextAt: DEVICE, callReadyAt: DEVICE }),
   // 한 번 오르면 안 내려가는 것
   lastLevel: MAX, lastStage: MAX, stageScheme: MAX, starsPaid: MAX, maxStreakMin: MAX, attendDay: MAX, mealDay: MAX, restDay: MAX, earlyDay: MAX,
   goalLog: mapOf(MAX), toyRecords: DEEP_MAX,
   startedAt: MIN_NZ,
-  greeted: OR, onboarded: OR, initialized: OR, bubbleSplit: OR, keyFix1004: OR, keyFix1009: OR,
+  greeted: OR, onboarded: OR, initialized: OR, bubbleSplit: OR, keyFix1004: OR, keyFix1009: OR, v2: OR,
   // 모으는 것: 합집합
   items: unionOf(String),
-  treasureSeen: unionOf(String),
+  retiredPaid: unionOf(String),
+  todoTomb: unionOf(String, 200),
+  treasureSeen: unionOf(String), // 한 번이라도 주운 보물 (도감)
+  workshopMade: unionOf((p) => `${p.at}|${p.key}`), // 공방에서 만든 기록
   bonus: unionOf(bonusKey),
   purchases: unionOf((p) => `${p.at}|${p.key}|${p.price}`, 300),
   starLog: unionOf((p) => `${p.at}|${p.key}`, 200),
-  workshopMade: unionOf((p) => `${p.at}|${p.key}`),
   achievements: mapOf({ t: 'min' }),
   rewarded: mapOf(OR), achRetro: mapOf(OR), achNoCoins: mapOf(OR), streakGifts: mapOf(OR),
   questSet: QUESTS,
   herd: HERD,
+  todos: TODOS,
   gauge: GAUGE,
   life: LIFE,
   ...Object.fromEntries(DEVICE_STATE.map((k) => [k, DEVICE])),
@@ -298,6 +320,8 @@ function merge(spec, b, l, r, ctx) {
  */
 function mergeData(base, local, remote, { now = Date.now(), legacy = false } = {}) {
   const ctx = { exact: !!base, now };
+  // 어느 기기에서든 지운 할 일은 합친 목록에 다시 넣지 않는다 (TODOS)
+  ctx.tombs = [...((local.state || {}).todoTomb || []), ...((remote.state || {}).todoTomb || [])];
   const b = base || {};
   const settings = merge(SETTINGS, b.settings, local.settings || {}, remote.settings || {}, ctx);
   const state = merge(STATE, b.state, local.state || {}, remote.state || {}, ctx);

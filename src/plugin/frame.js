@@ -21,6 +21,7 @@ const API = [
   ['treatEaten', 'send', 'pet:treat-eaten'],
   ['treasure', 'send', 'pet:treasure'],
   ['rub', 'send', 'pet:rub'],
+  // 동네 친구 · 깜짝 이벤트 (2.0.0 에 없앴다가 2.2.0 에 돌아왔다. 설정 friendsOn · workshopOn 으로 끈다)
   ['onFriend', 'on', 'pet:friend'],
   ['onFriendLeave', 'on', 'pet:friend-leave'],
   ['onFriendWear', 'on', 'pet:friend-wear'],
@@ -28,9 +29,10 @@ const API = [
   ['friendTrade', 'invoke', 'pet:friend-trade'],
   ['friendFeed', 'invoke', 'pet:friend-feed'],
   ['friendBye', 'invoke', 'pet:friend-bye'],
-  ['eventSay', 'send', 'pet:event-say'],
+  ['eventSay', 'send', 'pet:event-say'], // 깜짝 이벤트 · 친구 · 들어 올리기 · 떨어뜨리기 · 커서 사냥 말
   ['onEvent', 'on', 'pet:event'],
   ['eventSkip', 'send', 'pet:event-skip'], // 바빠서 못 보여 준 깜짝 이벤트 (오늘 횟수를 돌려받는다)
+  ['onLootKeep', 'on', 'pet:loot-keep'], // 공방을 껐다: 바닥 보물을 치운다 (호스트가 상자에 넣었다, 2.2.0)
   ['slot', 'invoke', 'pet:slot'],
   ['onPlay', 'on', 'pet:play'],
   ['onTreat', 'on', 'pet:treat'],
@@ -84,6 +86,17 @@ const API = [
   ['onToast', 'on', 'house:toast'], // 호스트가 보내는 하우스 알림 (별 · 출석 선물 · 리캡 카드)
   ['focusStart', 'invoke', 'focus:start'], // 집중 시간 시작 (분) (1.5.0)
   ['focusStop', 'invoke', 'focus:stop'],
+  // 2.0.0 홈: 쉬는 시간 · 할 일(플러그인 안 목록) · 노트 열기 · 그래프 열기. 볼트에 노트를 만들지 않는다
+  ['breakStart', 'invoke', 'focus:break'],
+  ['breakStop', 'invoke', 'focus:break-stop'],
+  ['todoAdd', 'invoke', 'todo:add'],
+  ['todoEdit', 'invoke', 'todo:edit'],
+  ['todoToggle', 'invoke', 'todo:toggle'],
+  ['todoRemove', 'invoke', 'todo:remove'],
+  ['todoMove', 'invoke', 'todo:move'],
+  ['todoClear', 'invoke', 'todo:clear'],
+  ['openNote', 'invoke', 'note:open'],
+  ['openGraph', 'invoke', 'graph:open'],
 ];
 
 class KitFrame {

@@ -163,7 +163,19 @@ class Brain extends EventEmitter {
   // 자는데 자꾸 건드려서 깼다. 5분은 깨어 있는다
   wake(at = Date.now()) {
     this.wokenUntil = at + 5 * MIN;
+    this.napAt = 0;
     this.tick();
+  }
+
+  // 우클릭 '재우기' (2.3.0, 이슈 #11). 다시 글을 쓰거나 노트를 열거나, 찌르거나 들어 올릴 때까지 잔다
+  tuckIn(at = Date.now()) {
+    this.napAt = at;
+    this.wokenUntil = 0;
+    this.tick();
+  }
+
+  napping() {
+    return !!this.napAt;
   }
 
   // 사용자가 Claude Code 를 쓰고 있다는 신호
@@ -342,7 +354,10 @@ class Brain extends EventEmitter {
     let mood;
     // 자꾸 건드려서 깨웠으면 한동안은 졸거나 자지 않는다 (wake())
     const woken = now < (this.wokenUntil || 0);
-    if (waitingAt && now - waitingAt < WAIT_FOR) mood = 'waiting';
+    // 재운 뒤에 다시 쓰기 시작했으면 (activity · 타이핑 hook) 낮잠은 끝
+    if (this.napAt && (this.lastActivity > this.napAt || this.generating > this.napAt)) this.napAt = 0;
+    if (this.napAt) mood = 'sleeping';
+    else if (waitingAt && now - waitingAt < WAIT_FOR) mood = 'waiting';
     else if (hooksLive ? this.gen.size > 0 : idle < 45_000) mood = 'thinking';
     else if (this.justFed(now)) mood = 'idle';
     else if (this.hungry(now) && idle < 30 * MIN) mood = 'hungry';
@@ -391,9 +406,7 @@ class Brain extends EventEmitter {
     if (!grace && this.hungry(now) && present && this.ready('hungry', 60 * MIN)) {
       const starving = now - this.life.hungrySince > 60 * MIN;
       this.emit('action', 'slot:hungry');
-      // 절반쯤은 오늘 먹고 싶은 밥 이름을 댄다 (main.js 의 cravingMeal)
-      const want = this.cravingMeal && this.cravingMeal();
-      this.say(want && Math.random() < 0.5 ? T.line('hungryCrave', { name: want }) : T.line(starving ? 'starving' : 'hungry'), 'hungry');
+      this.say(T.line(starving ? 'starving' : 'hungry'), 'hungry');
       return;
     }
 
@@ -418,12 +431,6 @@ class Brain extends EventEmitter {
       return;
     }
 
-    // 오늘 먹고 싶은 것을 하루 한 번 말한다 (쉬는 순간에. main.js 의 cravingToday)
-    if (present && this.cravingToday && mood !== 'sleeping' && this.once('crave', d)) {
-      const c = this.cravingToday();
-      if (c) this.talk(T.line('craveAnnounce', c), 'crave');
-    }
-
     // AI 활용 팁: 하루 5번까지, 90분에 한 번. 20분쯤 이어서 일하고 있을 때 (설정 '가끔 AI 활용 팁'으로 끈다)
     const [tipDay, tipN] = String(this.daily.tips || '').split('|');
     const tipsToday = tipDay === dayKey(d) ? Number(tipN) || 0 : 0;
@@ -441,7 +448,7 @@ class Brain extends EventEmitter {
         return;
       }
       const t = this.getStats().today;
-      // 공방에서 만든 옷을 입고 있으면 가끔 그 얘기 (main.js 의 workshopWorn, 2026-10-10)
+      // 공방에서 만든 옷을 입고 있으면 가끔 그 얘기 (host 의 workshopWorn. 공방을 끄면 null, 2.2.0 에 돌아왔다)
       const made = this.workshopWorn && this.workshopWorn();
       if (made && Math.random() < 0.2) {
         this.talk(T.line('workshopWear', { item: made }), 'chatter');

@@ -19,14 +19,8 @@ let idlePool = []; // 심심할 때 차례로 할 모션들 (설정에서 켠 �
 // 한 모션을 최소 5분은 쓰고 다음 것으로 넘어간다 (너무 자주 바뀌면 정신이 없다. main.js·sprite.js 도 같은 규칙)
 const IDLE_HOLD = 5 * 60_000;
 let idleTurn = { i: 0, at: 0 };
-// 그날의 기분 (main.js 의 temper). 돌아다니는 횟수·까부는 횟수·사냥 확률이 달라진다
-let temper = 'calm';
-const TEMPER = {
-  calm: { stroll: 1.8, idle: 1.5, hunt: 0.15, huntGap: 1.6, far: 0.7 },
-  playful: { stroll: 0.5, idle: 0.5, hunt: 0.7, huntGap: 0.5, far: 1.5 },
-  grumpy: { stroll: 1.2, idle: 1.3, hunt: 0.25, huntGap: 1.2, far: 1 },
-};
-const tp = () => TEMPER[temper] || TEMPER.calm;
+// 돌아다니는 횟수·심심풀이 모션 간격·커서 사냥 확률 (배수). 예전 '그날의 기분' 중 차분한 날 값 하나로 고정 (그날의 기분은 뺐다)
+const PACE = { stroll: 1.8, idle: 1.5, hunt: 0.15, huntGap: 1.6, far: 0.7 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = (v) => String(v).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
@@ -73,7 +67,6 @@ pet.onConfig((c) => {
   } else sprite.setAccessory(c.accessory);
   sprite.setMoodMotions(c.moodMotions);
   idlePool = c.idleMotions || [];
-  if (c.temper) temper = c.temper;
   applyScale();
   // 처음 한 번만 저장해 둔 자리에 세운다 (없으면 화면 오른쪽 끝)
   if (catX == null) {
@@ -396,6 +389,22 @@ function walkTo(goal, dt, fast = 1, stop = 0) {
   if (speed) {
     catX = clamp(catX + Math.sign(dx) * Math.min(speed * dt, dist), min, max);
     sprite.setMove(Math.sign(dx) * speed);
+    sprite.setToyPose(null);
+  } else sprite.setMove(0);
+  placeCat();
+  return Math.abs(goal - catX);
+}
+
+// 레이저 쫓기: 멀수록 빨리, 가까워지면 확 줄여서 점 위에 딱 선다 (walkTo 의 90 · 170 · 280 단계는 레이저엔 너무 느렸다, 10-18)
+function dashTo(goal, dt, stop = 0) {
+  const [min, max] = lane();
+  goal = clamp(goal, min, max);
+  const dx = goal - catX;
+  const dist = Math.abs(dx);
+  const speed = dist <= stop ? 0 : clamp(dist * 3.2, 240, 950);
+  if (speed) {
+    catX = clamp(catX + Math.sign(dx) * Math.min(speed * dt, dist), min, max);
+    sprite.setMove(Math.sign(dx) * Math.min(speed, 420));
     sprite.setToyPose(null);
   } else sprite.setMove(0);
   placeCat();
@@ -759,7 +768,7 @@ function stepToy(dt, now) {
   if (o.mode === 'custom') return o.C.step(o, dt, now) !== false;
   if (o.mode === 'place') return stepPlace(o, dt, now);
   if (o.mode === 'throw') return stepThrow(o, dt, now);
-  return stepHunt(o, dt, now);
+  return stepToyChase(o, dt, now);
 }
 
 // ----- 던지는 장난감 -----
@@ -1146,7 +1155,9 @@ function huntTarget(o) {
   return null;
 }
 
-function stepHunt(o, dt, now) {
+// (10-18) 예전 이름 stepHunt 가 아래 '커서 사냥' 의 stepHunt(dt, now) 와 겹쳐서, 뒤에 선언된 쪽이 이걸 덮어써
+// 레이저 · 비눗방울 · 낚싯대 · 깃털을 켜도 고양이가 거의 안 쫓았다. 이름을 따로 둔다
+function stepToyChase(o, dt, now) {
   const P = petPx();
   // 큰 비눗방울에 갇혀 둥실 떠 있는 중
   if (floating) {
@@ -1170,6 +1181,13 @@ function stepHunt(o, dt, now) {
     return true;
   }
   o.airCaught = false;
+  // 레이저: 잡았다 · 어라? 하는 동안에도 점이 멀리 달아나면 바로 다시 쫓는다 (10-18: 멈춰 서서 놓치던 것)
+  if (o.mode === 'laser' && tg && o.caughtAt && Math.hypot(tg.x - o.caughtAt.x, tg.y - o.caughtAt.y) > petPx() * 0.7) {
+    o.caughtAt = null;
+    o.after = null;
+    o.busyUntil = 0;
+    if (sprite.action && sprite.action.startsWith('toy')) sprite.cancel();
+  }
   if (now < o.busyUntil) {
     sprite.setMove(0);
     return true;
@@ -1191,7 +1209,7 @@ function stepHunt(o, dt, now) {
 
   const h = floorY() - tg.y; // 바닥에서 얼마나 높이 있나
   const reach = 24;
-  const dist = walkTo(tg.x, dt, o.mode === 'laser' ? 1.4 : 1, reach);
+  const dist = o.mode === 'laser' ? dashTo(tg.x, dt, reach) : walkTo(tg.x, dt, 1, reach);
   sprite.setLook(Math.min(1, dist / 60));
   if (dist > reach) return true;
   face(tg.x);
@@ -1200,14 +1218,14 @@ function stepHunt(o, dt, now) {
     // 낮다 → 엉덩이 씰룩씰룩 하다가 덮친다
     sprite.setToyPose(null);
     if (now > o.pounceUntil) {
-      if (!o.wiggled && Math.random() < 0.45) {
+      if (!o.wiggled && Math.random() < (o.mode === 'laser' ? 0.3 : 0.45)) {
         o.wiggled = true;
         sprite.play('toyWiggle');
-        o.busyUntil = now + 850;
+        o.busyUntil = now + (o.mode === 'laser' ? 600 : 850);
         return true;
       }
       o.wiggled = false;
-      o.pounceUntil = now + 1100;
+      o.pounceUntil = now + (o.mode === 'laser' ? 700 : 1100);
       sprite.play('pounce');
       huntCatch(o, tg, now, false);
     }
@@ -1219,14 +1237,19 @@ function stepHunt(o, dt, now) {
       huntCatch(o, tg, now, false);
     }
   } else if (h < P * 2) {
-    // 뛰면 닿는다 → 폴짝
+    // 뛰면 닿는다 → 폴짝 (비눗방울 · 레이저는 쉬지 않고 폴짝폴짝)
     if (now > o.pounceUntil) {
-      o.pounceUntil = now + 1500;
-      leap(h - P * 0.55);
+      o.pounceUntil = now + (o.mode === 'bubbles' ? 750 : o.mode === 'laser' ? 900 : 1500);
+      // 머리 꼭대기가 목표보다 조금 위로 가게 뛴다. 예전엔 머리 높이를 몸 칸의 55%로 쳐서(실제는 그보다 낮다) 늘 한 뼘 모자랐다 (10-18)
+      leap(h - (PetSprite.GRID - sprite.headTop()) * cellPx() + P * 0.12);
     } else sprite.setToyPose('toyChatter');
   } else {
-    // 너무 높다 → 올려다보며 턱을 딱딱
+    // 너무 높다 → 올려다보며 턱을 딱딱. 레이저는 그래도 가끔 벽을 차고 뛰어 본다
     sprite.setToyPose('toyChatter');
+    if (o.mode === 'laser' && now > o.pounceUntil) {
+      o.pounceUntil = now + rand(1800, 2800);
+      if (Math.random() < 0.55) leap(P * 1.6);
+    }
   }
   return true;
 }
@@ -1246,7 +1269,10 @@ function huntCatch(o, tg, now, inAir) {
     o.tz.vy -= 500;
     o.tz.vx += rand(-260, 260);
   }
-  if (o.mode === 'laser') o.after = { at: now + 650, pose: 'toyPeek', hold: 1400 }; // 잡았는데… 어라?
+  if (o.mode === 'laser') {
+    o.after = { at: now + 650, pose: 'toyPeek', hold: 1400 }; // 잡았는데… 어라?
+    o.caughtAt = { x: tg.x, y: tg.y };
+  }
   scored(o, now);
 }
 
@@ -1353,6 +1379,20 @@ function stepBubbles(o, dt, now) {
     b.vy = b.vy * damp + 14 * dt;
     b.x += (b.vx + Math.sin(now / 600 + b.wob) * 8) * dt;
     b.y += b.vy * dt;
+  }
+  // 고양이 몸(머리 꼭대기 ~ 발, 몸 너비)에 닿은 방울은 톡 터진다 (10-18: 겨냥한 방울 하나만 터지고 몸에 부딪힌 건 그냥 지나가던 것)
+  if (!floating && catX != null) {
+    const P = petPx();
+    const top = window.innerHeight - catLift - (PetSprite.GRID - sprite.headTop()) * cellPx();
+    const bottom = window.innerHeight - catLift;
+    for (const b of [...st.list]) {
+      const rr = b.r * D;
+      if (Math.abs(b.x - catX) < P * 0.34 + rr && b.y > top - rr && b.y < bottom + rr) {
+        popBubble(o, b);
+        scored(o, now);
+        if (catLift <= 0 && !sprite.action && Math.random() < 0.35) sprite.play('toyPop');
+      }
+    }
   }
   st.list = st.list.filter((b) => {
     const dead = now - b.born > b.life || b.y + b.r * D >= floorY() || b.x < 0 || b.x > window.innerWidth;
@@ -1605,7 +1645,7 @@ function stepStroll(dt, now) {
       const pick = idlePool.length ? idlePool[idleTurn.i % idlePool.length] : null;
       const M = pick && PetSprite.MOTIONS[pick];
       // 다른 걸 하는 중이면 조금 있다가 다시 본다
-      nextIdleMotion = now + (M && awake && sprite.busy() ? 3000 : (50000 + Math.random() * 60000) * tp().idle * (lowPower ? 2.5 : 1));
+      nextIdleMotion = now + (M && awake && sprite.busy() ? 3000 : (50000 + Math.random() * 60000) * PACE.idle * (lowPower ? 2.5 : 1));
       if (M && awake && !sprite.busy()) {
         sprite.play(pick, { times: M.loop ? 2 : 1 });
         if (!idleTurn.at) idleTurn.at = now; // 처음 쓴 때부터 5분을 센다
@@ -1614,13 +1654,13 @@ function stepStroll(dt, now) {
       }
     }
     if (now < nextStroll) return;
-    nextStroll = now + (14000 + Math.random() * 16000) * tp().stroll * (lowPower ? 3 : 1);
+    nextStroll = now + (14000 + Math.random() * 16000) * PACE.stroll * (lowPower ? 3 : 1);
     if (sprite.busy() || sprite.mood !== 'idle' || current) return;
     // 화면이 넓어도 산책은 몇 걸음만. 벽에 붙어 있으면 반대쪽으로
     let dir = Math.random() < 0.5 ? -1 : 1;
     if (catX - min < 60) dir = 1;
     if (max - catX < 60) dir = -1;
-    strollTo = Math.max(min, Math.min(max, catX + dir * (40 + Math.random() * 180) * tp().far));
+    strollTo = Math.max(min, Math.min(max, catX + dir * (40 + Math.random() * 180) * PACE.far));
     return;
   }
 
@@ -1793,7 +1833,9 @@ function stepFall(dt) {
 }
 
 // ---------- 깜짝 이벤트 ----------
-// main/treasure.js 가 가끔 보낸다.
+// 2.0.0 에 없앴다가 2.2.0 에 돌아왔다 (이슈 #9). 설정에서 공방(workshopOn)을 끄면 호스트가 안 보내고,
+// 바닥에 남은 보물은 pet:loot-keep 으로 치운다 (호스트가 상자에 넣었다)
+// core/treasure.js 가 가끔 보낸다.
 //  fetch : 화면 밖으로 나갔다가 보물을 물고 돌아온다   bird : 새가 날아가다 보물을 떨어뜨린다
 //  rare : 평소엔 안 하는 모션을 한 번   (동네 친구는 아래 '동네 친구' 가 따로 맡는다)
 // 보물은 바닥에 떨어지고, 눌러서 줍는다. 한참 안 주우면 고양이가 알아서 챙겨 둔다
@@ -1823,8 +1865,7 @@ function collectLoot(o) {
   pet.treasure(o.key);
 }
 
-// 고양이가 딴 걸 하고 있지 않나 (먹기·놀기·들림 중이면 이벤트는 건너뛴다)
-const catFree = () => !ev && !toy && !treats.length && !held && !dragging && !lifted && catLift <= 0 && catX != null;
+// 고양이가 딴 걸 하고 있지 않나: 아래 '커서 사냥' 의 catFree (물어 오기 중이면 아니다)
 
 pet.onEvent((e) => {
   const now = performance.now();
@@ -1845,6 +1886,19 @@ pet.onEvent((e) => {
     pet.eventSay('eventFetchOut');
   }
   void now;
+});
+
+// 공방을 껐거나 펫 판을 새로 만들었다 (2.2.0): 호스트가 아직 안 주운 보물을 상자에 넣었다. 화면에서만 치운다
+pet.onLootKeep(() => {
+  for (const o of loot) o.el.remove();
+  if (held && held.o.loot) held = null;
+  loot = [];
+  for (const b of birds) b.dropped = true;
+  pendingRare = null;
+  if (ev) {
+    ev.key = null; // 들고 오던 보물도 상자에 들어갔다
+    endFetch(false);
+  }
 });
 
 // 새 한 마리. 화면 한쪽에서 날아와 고양이 근처에서 보물을 떨어뜨리고 반대쪽으로 사라진다
@@ -2370,7 +2424,7 @@ async function openFriendCard() {
         <div class="fc-bond-top"><span class="fc-hearts">${hearts}</span><b>${esc(T.t('friend.' + info.level))}</b><span class="fc-note">${esc(bondNote)}</span></div>
         <div class="fc-bar"><i style="width:${pct}%"></i></div>
       </div>
-      <div class="fc-sec">
+      ${info.treasures === false ? '' : `<div class="fc-sec">
         <div class="fc-title"><b>${esc(T.t('fr.want'))}</b><small>${esc(T.t('fr.ptsTrade'))}</small></div>
         <div class="fc-trade">
           <div class="fc-box">${ic(w.key, 24)}<span><b>${esc(T.t('treasure.' + w.key))} ×${w.n}</b><small class="${enough ? 'ok' : 'lack'}">${esc(T.t('fr.have', { n: w.have }))}</small></span></div>
@@ -2378,7 +2432,7 @@ async function openFriendCard() {
           <div class="fc-box gift">${ic(g.key, 24)}<span><b>×${g.n}</b><small>${esc(T.t('fr.gift'))}</small></span></div>
         </div>
         <div class="fc-row">${tradeBtn}</div>
-      </div>
+      </div>`}
       <div class="fc-sec">
         <div class="fc-title"><b>${esc(T.t('fr.feed'))}</b><small class="${full ? 'lack' : ''}">${esc(full ? T.t('fr.full') : T.t('fr.feedLeft', { n: info.maxFeeds - info.feeds }))}</small></div>
         <div class="fc-note">${esc(T.t('fr.ptsFeed'))}</div>
@@ -2506,6 +2560,8 @@ function endFetch(done) {
 let hunt = null;
 let nextHunt = performance.now() + 3 * 60_000;
 const HUNT_STILL_MS = 7000;
+// 고양이가 딴 걸 하고 있지 않나 (먹기·놀기·들림·물어 오기 중이면 사냥 · 깜짝 이벤트는 건너뛴다)
+const catFree = () => !ev && !toy && !treats.length && !held && !dragging && !lifted && catLift <= 0 && catX != null;
 
 function stepHunt(dt, now) {
   const P = petPx();
@@ -2515,7 +2571,7 @@ function stepHunt(dt, now) {
     const calm = catFree() && !sprite.busy() && (sprite.mood === 'idle' || sprite.mood === 'active');
     if (!near || !calm) return false;
     nextHunt = now + 60_000;
-    if (Math.random() > tp().hunt) return false;
+    if (Math.random() > PACE.hunt) return false;
     hunt = { phase: 'stalk', x: mouseX, y: mouseY, startMove: lastMouseMove };
     strollTo = null;
     sprite.setToyPose('huntCrouch');
@@ -2577,7 +2633,7 @@ function endHunt(done) {
   sprite.setToyPose(null);
   sprite.setMove(0);
   // 한 번 사냥하면 한참 쉰다
-  nextHunt = performance.now() + ((done ? 8 : 4) * 60_000 + Math.random() * 6 * 60_000) * tp().huntGap;
+  nextHunt = performance.now() + ((done ? 8 : 4) * 60_000 + Math.random() * 6 * 60_000) * PACE.huntGap;
 }
 
 // ---------- 그리기 루프 ----------
@@ -2613,7 +2669,7 @@ function loop() {
   stepFall(dt);
   stepSwing(dt);
   // 끌려가는 중이거나 들렸다 떨어지는 중이면 걷지 않는다
-  // 깜짝 이벤트(물어 오기·손님)가 고양이를 쥐고 있으면 걷기·주우러 가기는 쉰다
+  // 깜짝 이벤트(물어 오기)나 커서 사냥이 고양이를 쥐고 있으면 걷기·주우러 가기는 쉰다
   const evBusy = stepEvent(dt, now) || (!dragging && !lifted && stepHunt(dt, now));
   if (dragging || lifted) sprite.setMove(0);
   else if (!evBusy && !stepChase(dt, now)) stepStroll(dt, now);
@@ -2754,10 +2810,8 @@ function trackRub(e) {
   if (rub.since && now - rub.since >= RUB_MS && rub.flips >= 4) {
     rub.since = 0;
     rub.until = now + 3500;
-    // 쓰다듬기 싫은 날은 반은 냥펀치
-    const swat = temper === 'grumpy' && Math.random() < 0.5;
-    if (!treats.some((o) => o.eating) && !hunt && !ev) sprite.play(swat ? 'swat' : 'purr');
-    pet.rub(swat ? 'swat' : undefined);
+    if (!treats.some((o) => o.eating) && !hunt && !ev) sprite.play('purr');
+    pet.rub();
   }
 }
 let lastMouseMove = performance.now();

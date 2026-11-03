@@ -1,6 +1,6 @@
 // 보물 공방 (2026-09-24). 깜짝 이벤트로 주운 하찮은 보물을 재료로 공방 전용 코스튬을 만든다.
 // 만들면 재료 보물의 개수가 준다. 도감(한 번이라도 주운 기록)과 '보물 모으기' 업적은 그대로 남는다 (treasure.js 의 treasureSeen).
-// 코스튬은 main/shop.js 의 ACCESSORIES 에 workshop: true 로 들어 있다 (상점에서는 안 판다). 그림은 renderer/accessories-workshop-*.js
+// 코스튬은 core/shop.js 의 ACCESSORIES 에 workshop: true 로 들어 있다 (2.0.0 부터 상점에서도 판다. 산 옷은 다시 만들지 않는다). 그림은 kit/accessories-workshop-*.js
 //
 // 재료 개수는 보물이 하루 4개쯤 들어온다고 보고 잡았다 (깜짝 이벤트 하루 최대 8번, 흔함 70 · 드묾 25 · 전설 5).
 //  특정 흔한 보물 하나는 하루 0.14개, 드문 것 0.08개, 전설 0.04개꼴
@@ -122,9 +122,10 @@ class Workshop {
   hasMade(key) {
     return (this.state.get('items') || []).includes(key);
   }
-  // 한 번이라도 만든 적 있나 (친구에게 선물해서 지금은 없어도 공방 진행도는 남는다). 가진 게 없으면 다시 만들 수 있다
+  // 한 번이라도 만든 적 있나 (친구에게 선물해서 지금은 없어도 공방 진행도는 남는다). 가진 게 없으면 다시 만들 수 있다.
+  // 2.2.0: 같은 옷을 상점에서도 팔아서, 옷장에 있는 것만으로는 만든 걸로 치지 않는다 (만든 기록 workshopMade 만 본다)
   everMade(key) {
-    return this.hasMade(key) || (this.state.get('workshopMade') || []).some((x) => x.key === key);
+    return (this.state.get('workshopMade') || []).some((x) => x.key === key);
   }
 
   // 화면에 보여 줄 조합 목록: 재료마다 가진 개수, 만들 수 있나, 이미 만들었나
