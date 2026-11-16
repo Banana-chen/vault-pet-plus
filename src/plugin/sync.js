@@ -210,7 +210,7 @@ function bonusKey(x) {
 }
 const STATE = objOf({
   // 코인 · 별 · 횟수: 양쪽에서 늘어난 만큼
-  walletSpent: SUM, walletBonus: SUM, starsSpent: SUM, questsDone: SUM, pokes: SUM, mealsTaken: SUM, restsTaken: SUM,
+  walletSpent: SUM, walletBonus: SUM, walletKept: SUM, starsSpent: SUM, questsDone: SUM, pokes: SUM, mealsTaken: SUM, restsTaken: SUM,
   pantry: mapOf(SUM), treasures: mapOf(SUM), cnt: mapOf(SUM),
   focusStats: objOf({ n: SUM, min: SUM, last: MAX }),
   purchaseStats: objOf({ v: MAX }, DEEP_SUM),
@@ -220,7 +220,7 @@ const STATE = objOf({
   lastLevel: MAX, lastStage: MAX, stageScheme: MAX, starsPaid: MAX, maxStreakMin: MAX, attendDay: MAX, mealDay: MAX, restDay: MAX, earlyDay: MAX,
   goalLog: mapOf(MAX), toyRecords: DEEP_MAX,
   startedAt: MIN_NZ,
-  greeted: OR, onboarded: OR, initialized: OR, bubbleSplit: OR, keyFix1004: OR, keyFix1009: OR, v2: OR,
+  greeted: OR, onboarded: OR, starAsked: OR, starPending: OR, initialized: OR, bubbleSplit: OR, keyFix1004: OR, keyFix1009: OR, v2: OR,
   // 모으는 것: 합집합
   items: unionOf(String),
   retiredPaid: unionOf(String),

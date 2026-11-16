@@ -315,6 +315,31 @@ test('host: 프리미엄 음식 — 고정·코인·업적 횟수, 먹이에 쓴
   assert.strictEqual(host.gamify.st.cnt.pf_royalTable, 1);
 });
 
+test('host: 배가 든든하면 밥때 알림이 와도 배고프지 않다 — 용왕님 생일상 고정 (2.4.1, 이슈 #16)', () => {
+  const { host } = makeHost();
+  const { brain, gauge } = host;
+  const now = Date.now();
+  // 생일상을 먹고 배부름 100, 24시간 고정
+  gauge.g = { food: 100, at: now, foodLockUntil: 0 };
+  gauge.lockFood(24 * HOUR_MS, now);
+  brain.getHungry(now); // 점심 알림
+  assert.ok(!brain.hungry(now), '고정 중에는 배고프지 않다');
+  // 2.4.0 에서 이미 저장된 배고픔도 가려진다 (재시작해도 배고프다던 것)
+  brain.life = { hungrySince: now - HOUR_MS, fedAt: now - 2 * HOUR_MS };
+  assert.ok(!brain.hungry(now));
+  brain.tick(now);
+  assert.notStrictEqual(brain.mood, 'hungry');
+  // 고정이 없어도 배부름 50 이상이면 밥때에 배고파하지 않는다
+  gauge.g = { food: 80, at: now, foodLockUntil: 0 };
+  brain.life = { hungrySince: 0, fedAt: 0 };
+  brain.getHungry(now);
+  assert.ok(!brain.hungry(now));
+  // 배가 정말 고프면 그대로 배고프다
+  gauge.g = { food: 10, at: now, foodLockUntil: 0 };
+  brain.getHungry(now);
+  assert.ok(brain.hungry(now));
+});
+
 test('host: 배고파도 놀고, 한참 쓰다 쉬는 틈에 권한 장난감을 누르면 「기다림의 달인」 횟수가 오른다', async () => {
   const { host, sent, plugin } = makeHost();
   const toy = host.shop.summary().toy.find((x) => !x.locked);
@@ -434,6 +459,37 @@ test('host: 뺀 폴더는 성장에서 빠진다', async () => {
   const id = usage.projects(['일기']).find((p) => p.label === '일기').id;
   await host.onInvoke('house:set', null, { excludedProjects: [id] });
   assert.ok(host.growth.xp < xp);
+});
+
+test('host: 폴더를 빼도 이미 번 코인은 남고, 다시 넣으면 두 번 세지 않는다 (#14)', async () => {
+  const { host, usage } = makeHost();
+  usage.observe('일기/a.md', measure('가'.repeat(1000)), new Date());
+  host.onUsage();
+  const before = host.shop.wallet().earned;
+  const id = usage.projects(['일기']).find((p) => p.label === '일기').id;
+  await host.onInvoke('house:set', null, { excludedProjects: [id] });
+  assert.ok(host.shop.writtenCoins() < before - 1000, '뺀 폴더의 글은 더 세지 않는다');
+  assert.strictEqual(host.shop.wallet().earned, before);
+  await host.onInvoke('house:set', null, { excludedProjects: [] });
+  assert.strictEqual(host.shop.wallet().earned, before);
+  assert.strictEqual(host.state.get('walletKept'), 0);
+});
+
+test('host: 자동 급식은 켰을 때만, 창고의 밥으로 배고픈 고양이를 먹인다 (#13)', async () => {
+  const { host } = makeHost();
+  const meal = host.shop.summary().food.find((x) => x.group === 'meal' && !x.premium).key;
+  host.state.set({ pantry: { [meal]: 2 } });
+  host.pet = null; // 고양이 판이 없어도 먹는다
+  host.gauge.g.food = 10;
+  assert.strictEqual(host.autoFeed(), false, '꺼져 있으면 안 준다');
+  await host.onInvoke('house:set', null, { autoFeed: true });
+  assert.strictEqual(host.autoFeed(), true);
+  assert.ok(host.gauge.get().food > 25);
+  assert.strictEqual(host.shop.stock(meal), 1);
+  assert.strictEqual(host.autoFeed(), false, '배부르면 안 준다');
+  host.gauge.g.food = 10;
+  host.state.set({ pantry: {} });
+  assert.strictEqual(host.autoFeed(), false, '창고가 비면 안 준다');
 });
 
 /* ── Vault Pet 0.x 에서 넘어오기 ── */
@@ -626,9 +682,36 @@ test('safedata: 백업은 하루에 한 번, 고양이가 있는 자료만', asy
   assert.deepStrictEqual(JSON.parse(a.files['p/data.backup.json']), good);
 });
 
+test('코스튬 제안하기: 하우스 버튼 → 호스트 → 양식이 채워진 GitHub 새 이슈 (2.7.0, 이슈 #20)', () => {
+  const fs = require('fs');
+  const rd = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.ok(rd('src/plugin/frame.js').includes("['costumeIdea', 'invoke', 'app:costume-idea']"));
+  assert.ok(/case 'app:costume-idea':\s*this\.plugin\.openCostumeIdea\(\)/.test(rd('src/plugin/host.js')));
+  const url = (rd('src/plugin/main.js').match(/const COSTUME_URL = '([^']+)'/) || [])[1];
+  assert.ok(url && url.endsWith('/issues/new?template=costume.yml'), url);
+  const form = rd('.github/ISSUE_TEMPLATE/costume.yml');
+  assert.ok(/^name: Costume idea/m.test(form) && /^title: "Costume idea: "/m.test(form));
+  const house = rd('src/kit/house.js');
+  assert.ok(house.includes("case 'costumeIdea'") && house.includes('pet.costumeIdea()'));
+  // 별 안내 창(모달)의 단추는 view 의 [data-act] 묶음에 안 들어가니 showStarAsk 안에서 따로 잇는다 (실제 옵시디언에서 잡음)
+  const star = house.slice(house.indexOf('function showStarAsk'), house.indexOf('// ---------- 시작 ----------'));
+  assert.ok(/\[data-act="costumeIdea"\][\s\S]*?addEventListener\('click', \(\) => pet\.costumeIdea\(\)\)/.test(star), '별 안내 창의 코스튬 제안하기 단추가 이어져 있다');
+});
+
+test('꿈틀 문어 모자: 상점 세트(머리·목·등), 네 언어 이름, 그림이 있다 (2.7.0, 이슈 #20)', () => {
+  const fs = require('fs');
+  const shop = require('../src/core/shop.js');
+  const it = shop.ACCESSORIES.find((x) => x.key === 'octopushat');
+  assert.ok(it && it.slot === 'set' && !it.stars, '코인으로 사는 세트');
+  assert.deepStrictEqual(it.covers, ['head', 'neck', 'back']);
+  for (const lang of I18N.LANGS) assert.ok(I18N.UI[lang]['item.octopushat'], lang + ' item.octopushat');
+  const kit = fs.readFileSync(path.join(__dirname, '..', 'src/kit/accessories-7.js'), 'utf8');
+  assert.ok(/octopushat: \{[\s\S]*?back\(g, a, c, t\)[\s\S]*?front\(g, a, c, t\)/.test(kit));
+});
+
 test('i18n: 의견 보내기·저장 파일 안내·자랑 카드에 플러그인 이름', () => {
   for (const lang of I18N.LANGS) {
-    for (const k of ['obs.feedback', 'obs.feedbackDesc', 'obs.feedbackBtn', 'obs.dataRestored', 'obs.dataLost']) assert.ok(I18N.UI[lang][k], lang + ' ' + k);
+    for (const k of ['obs.feedback', 'obs.feedbackDesc', 'obs.feedbackBtn', 'obs.dataRestored', 'obs.dataLost', 'obs.costumeIdea', 'obs.costumeIdeaBtn']) assert.ok(I18N.UI[lang][k], lang + ' ' + k);
     for (const k of ['card.footer', 'card.shareText']) assert.ok(I18N.UI[lang][k].includes('Vault Pet'), lang + ' ' + k);
   }
 });
@@ -1166,9 +1249,9 @@ test('shop: 장난감 36종 — 4차 6종까지 아이콘 · 이름 · 노는 �
   for (const k of ['sunbeam', 'quilt', 'fishbowl', 'shellgame', 'volley', 'simon']) assert.ok(shop.TOYS.some((x) => x.key === k), k);
   for (const it of shop.TOYS) {
     assert.ok(PixelArt.has(it.key), 'icon ' + it.key);
-    for (const lang of ['ko', 'en', 'zh']) for (const p of ['item.', 'toyHow.', 'toyDo.']) assert.ok(I18N.UI[lang][p + it.key], `${lang} ${p}${it.key}`);
+    for (const lang of ['ko', 'en', 'zh', 'ru']) for (const p of ['item.', 'toyHow.', 'toyDo.']) assert.ok(I18N.UI[lang][p + it.key], `${lang} ${p}${it.key}`);
   }
-  for (const lang of ['ko', 'en', 'zh']) for (const k of ['whackcat', 'rps', 'trampoline', 'jumprope', 'quilt', 'shellgame', 'volley', 'simon']) assert.ok(I18N.UI[lang]['game.rec.' + k], `${lang} game.rec.${k}`);
+  for (const lang of ['ko', 'en', 'zh', 'ru']) for (const k of ['whackcat', 'rps', 'trampoline', 'jumprope', 'quilt', 'shellgame', 'volley', 'simon']) assert.ok(I18N.UI[lang]['game.rec.' + k], `${lang} game.rec.${k}`);
 });
 
 test('host: 줄넘기 · 4차 장난감 최고 기록이 저장된다 (RECORD_KEYS)', () => {
@@ -1239,15 +1322,15 @@ test('house.css: 빌드하면 중첩 · :has · !important 가 없다 (옵시디
   }
 });
 
-/* ── 중국어 (zh) ── */
+/* ── 중국어 (zh) · 러시아어 (ru) ── */
 // 빠진 글은 한국어로 나온다 (Strings.t · lines 가 ko 로 떨어진다). 그래서 영어에 있는 건 중국어에도 다 있어야 한다
 const placeholders = (s) => [...String(s).matchAll(/\{(\w+)/g)].map((m) => m[1]);
-test('i18n zh: 영어에 있는 화면 글 · 대사 종류가 중국어에도 다 있고, {자리}가 같다', () => {
-  assert.ok(I18N.LANGS.includes('zh'), 'LANGS');
+for (const L of ['zh', 'ru']) test(`i18n ${L}: 영어에 있는 화면 글 · 대사 종류가 ${L} 에도 다 있고, {자리}가 같다`, () => {
+  assert.ok(I18N.LANGS.includes(L), 'LANGS');
   const en = I18N.UI.en;
-  const zh = I18N.UI.zh;
+  const zh = I18N.UI[L];
   const missing = Object.keys(en).filter((k) => !(k in zh));
-  assert.deepStrictEqual(missing, [], 'zh UI 빠짐');
+  assert.deepStrictEqual(missing, [], `${L} UI 빠짐`);
   for (const k of Object.keys(en)) {
     assert.strictEqual(typeof zh[k], 'string', k);
     assert.deepStrictEqual([...new Set(placeholders(zh[k]))].sort(), [...new Set(placeholders(en[k]))].sort(), `UI ${k}: ${zh[k]}`);
@@ -1255,16 +1338,17 @@ test('i18n zh: 영어에 있는 화면 글 · 대사 종류가 중국어에도 �
     assert.ok(!/[\uac00-\ud7a3]/.test(zh[k]), `UI 한글 ${k}: ${zh[k]}`);
   }
   const kinds = Object.keys(I18N.LINE.en);
-  assert.deepStrictEqual(kinds.filter((k) => !I18N.LINE.zh[k] || !Array.isArray(I18N.LINE.zh[k].angel)), [], 'zh LINE 빠짐');
+  assert.deepStrictEqual(kinds.filter((k) => !I18N.LINE[L][k] || !Array.isArray(I18N.LINE[L][k].angel)), [], `${L} LINE 빠짐`);
   for (const kind of kinds) {
     const enLines = I18N.LINE.en[kind].angel;
-    const zhLines = I18N.LINE.zh[kind].angel;
+    const zhLines = I18N.LINE[L][kind].angel;
     if (enLines.length) assert.ok(zhLines.length, `LINE ${kind} 비었다`);
     const enPh = new Set(enLines.flatMap(placeholders));
     const zhPh = new Set(zhLines.flatMap(placeholders));
     for (const p of enPh) assert.ok(zhPh.has(p), `LINE ${kind}: {${p}} 없음`);
     for (const p of zhPh) assert.ok(enPh.has(p), `LINE ${kind}: 영어에 없는 {${p}}`);
     for (const s of zhLines) {
+      assert.strictEqual(typeof s, 'string', `LINE ${kind} 글이 아님`);
       assert.ok(!/[\uac00-\ud7a3]/.test(s), `LINE 한글 ${kind}: ${s}`);
       assert.ok(!/\{\w+#/.test(s), `LINE 조사 문법 ${kind}: ${s}`);
     }
@@ -1291,6 +1375,21 @@ test('legacy · 설정: 언어 zh 를 받아들인다', async () => {
   assert.strictEqual(host.T.lang, 'zh');
   await host.onInvoke('house:set', null, { language: 'fr' });
   assert.strictEqual(host.settings.get('language'), 'zh', '모르는 언어는 무시');
+});
+
+test('i18n ru: 로케일 ru-RU, 예전 설정 · 하우스 설정이 ru 를 받아들이고, 시간은 24시간으로 (#18)', async () => {
+  const T = new I18N.Strings('ru');
+  assert.strictEqual(T.lang, 'ru');
+  assert.strictEqual(T.locale, 'ru-RU');
+  assert.ok(T.t('obs.star.t') && !/[가-힣]/.test(T.t('obs.star.t')), '별 요청 창이 한국어로 떨어지지 않는다');
+  assert.strictEqual(legacyMod.legacySettings({ settings: { language: 'ru' } }).language, 'ru');
+  const { DEFAULT_PET_NAME } = require(path.join(src, 'plugin/store'));
+  assert.strictEqual(DEFAULT_PET_NAME.ru, 'Kit', '첫 이름이 한국어 킷이 아니다');
+  const { host } = makeHost();
+  await host.onInvoke('house:set', null, { language: 'ru' });
+  assert.strictEqual(host.settings.get('language'), 'ru');
+  const late = I18N.LINE.ru.late.angel.find((s) => s.includes('{hl}'));
+  if (late) assert.ok(!/[가-힣]|AM|PM/.test(I18N.fill(late, { hl: '23:00' })));
 });
 
 /* ── 1.5.0: 단어 · 끝낸 할 일 · 하루 목표 · 집중 시간 ── */
@@ -1462,7 +1561,7 @@ test('achievements: 목표 · 집중 · 할 일 업적 15개가 있고 묶음 �
   const ids = ACHIEVEMENTS.filter((a) => a.cat === 'focus').map((a) => a.id);
   assert.strictEqual(ids.length, 15);
   assert.ok(CATS.includes('focus'));
-  for (const lang of ['ko', 'en', 'zh']) {
+  for (const lang of ['ko', 'en', 'zh', 'ru']) {
     assert.ok(I18N.UI[lang]['ach.cat.focus'], lang);
     for (const id of ids) assert.ok(I18N.UI[lang][`ach.${id}.name`] && I18N.UI[lang][`ach.${id}.desc`], `${lang} ${id}`);
   }

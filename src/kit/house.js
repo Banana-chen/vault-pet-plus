@@ -60,6 +60,7 @@ const bigTok = (n) => new Intl.NumberFormat('en-US', { notation: 'compact', maxi
 const hourName = (h) =>
   h == null ? '-'
   : T.lang === 'en' ? `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`
+  : T.lang === 'ru' ? `${h}:00`
   : T.lang === 'zh' ? (h === 0 ? '凌晨0點' : h === 12 ? '中午12點' : `${h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '晚上'}${h % 12}點`)
   : `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시`;
 const coins = (n, px = 14) => `${icon('coin', px)}<span>${t('shop.coin', { n: fmt(n) })}</span>`;
@@ -2408,7 +2409,8 @@ const TABS = {
     const right =
       page === 'costume'
         ? `<nav class="shop-jump ward-tabs">${chips}</nav>
-          ${list.length ? `<div class="wardrobe inv-grid inv-uni inv-cos">${cards}</div>` : `<p class="muted center">${t(mine.length ? 'ward.emptyTab' : 'ward.empty')}</p>`}`
+          ${list.length ? `<div class="wardrobe inv-grid inv-uni inv-cos">${cards}</div>` : `<p class="muted center">${t(mine.length ? 'ward.emptyTab' : 'ward.empty')}</p>`}
+          ${costumeIdeaRow()}`
         : !have[page].length
           ? `<p class="muted center">${t('inv.empty.' + page)}</p>`
           : page === 'treasure'
@@ -2546,7 +2548,8 @@ const TABS = {
     const pageBody = `
       <p class="muted shop-page-sub">${t('shop.' + page + 'Sub')}</p>
       ${starHead}
-      ${grid(pageItems)}`;
+      ${grid(pageItems)}
+      ${page === 'acc' || page === 'star' ? costumeIdeaRow() : ''}`;
 
     // 처음 만난 날. 코인은 이 순간부터 앞으로 일한 만큼만 쌓인다
     const opened = w.since ? new Date(w.since) : null;
@@ -2781,6 +2784,7 @@ const TABS = {
             <option value="ko" ${s.language === 'ko' ? 'selected' : ''}>한국어</option>
             <option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option>
             <option value="zh" ${s.language === 'zh' ? 'selected' : ''}>中文</option>
+            <option value="ru" ${s.language === 'ru' ? 'selected' : ''}>Русский</option>
           </select></div>
         <div class="field"><div class="lbl">${t('set.bubbles')}<small>${t('set.bubblesSub')}</small></div>${sw('bubblesEnabled', s.bubblesEnabled)}</div>
         <div class="field"><div class="lbl">${t('set.chatter')}<small>${t('set.chatterSub')}</small></div>${sw('chatter', s.chatter)}</div>
@@ -2791,6 +2795,7 @@ const TABS = {
       <div class="panel">
         <div class="field"><div class="lbl">${t('set.lunch')}</div><div class="inline"><input type="time" data-key="lunchTime" value="${esc(s.lunchTime)}">${sw('lunchEnabled', s.lunchEnabled)}</div></div>
         <div class="field"><div class="lbl">${t('set.dinner')}</div><div class="inline"><input type="time" data-key="dinnerTime" value="${esc(s.dinnerTime)}">${sw('dinnerEnabled', s.dinnerEnabled)}</div></div>
+        <div class="field"><div class="lbl">${t('set.autoFeed')}<small>${t('set.autoFeedSub')}</small></div>${sw('autoFeed', !!s.autoFeed)}</div>
         <div class="field"><div class="lbl">${t('set.rest')}<small>${t('set.restSub')}</small></div><div class="inline"><input type="number" min="15" max="600" step="5" data-key="restAfterMin" value="${s.restAfterMin}">${t('set.minutes')}</div></div>
         <div class="field"><div class="lbl">${t('set.sleepy')}<small>${t('set.sleepySub')}</small></div><div class="inline"><input type="number" min="5" max="600" step="5" data-key="sleepyAfterMin" value="${s.sleepyAfterMin}">${t('set.minutes')}</div></div>
         <div class="field"><div class="lbl">${t('set.sleep')}</div><div class="inline"><input type="number" min="10" max="1440" step="5" data-key="sleepAfterMin" value="${s.sleepAfterMin}">${t('set.minutes')}</div></div>
@@ -3700,6 +3705,9 @@ async function act(name, el) {
     case 'feedback': // [옵시디언]
       pet.feedback();
       break;
+    case 'costumeIdea': // [옵시디언] 2.7.0
+      pet.costumeIdea();
+      break;
     case 'whatsNew':
       showWhatsNew();
       break;
@@ -3854,10 +3862,16 @@ function showWhatsNew() {
     <ul class="wn-list">${rows}</ul>
     <div class="center"><button class="btn primary" data-close>${t('wn.ok')}</button></div>`,
     'wn-modal',
+    // 창을 닫으면 (닫기 · 좋아요 · Esc · 바깥) 별 안내 창을 따로 띄운다. '가 보기'로 다른 화면에 간 때는 덮지 않고 다음에 하우스를 열 때로 미룬다
+    () => {
+      if (!going && starDue()) setTimeout(showStarAsk, 0);
+    },
   );
+  let going = false;
   $$('[data-wn-go]', el).forEach((b) =>
     b.addEventListener('click', () => {
       const go = b.dataset.wnGo;
+      going = true;
       closeModal();
       if (go === 'ears') {
         setTab('wardrobe');
@@ -3876,6 +3890,39 @@ function showWhatsNew() {
     }),
   );
   if (D.whatsNew) pet.whatsNewSeen().then((d) => d && (D = d));
+}
+
+// ---------- 코스튬 제안하기 (2.7.0, 이슈 #20) ----------
+// 상점 코스튬 칸 · 옷장 코스튬 칸 맨 아래와 별 안내 창에 둔다. 누르면 양식이 채워진 GitHub 새 이슈가 브라우저로 열린다 (그 전에는 아무 통신 없음)
+function costumeIdeaRow() {
+  if (!window.KC_OBSIDIAN) return '';
+  return `<div class="cos-idea"><span>${icon('sparkle', 13)}${t('obs.costumeIdea')}</span><button class="btn ghost small" data-act="costumeIdea">${t('obs.costumeIdeaBtn')}</button></div>`;
+}
+
+// ---------- GitHub 별 안내 (2.5.0, 업데이트한 기존 사용자에게 딱 한 번) ----------
+// '새로 생긴 것' 창을 닫으면 따로 뜬다. 보상과 묶지 않는다 (누르든 안 누르든 게임에는 아무 차이가 없다)
+let starShown = false;
+function starDue() {
+  return !!(window.KC_OBSIDIAN && D && D.starAsk && !starShown);
+}
+function showStarAsk() {
+  if (!starDue() || !$('#modal').hidden) return;
+  starShown = true;
+  const el = openModal(
+    `<div class="modal-top"><h2>${t('obs.star.t')}</h2><button class="btn ghost small" data-close>${t('modal.close')}</button></div>
+    <div class="star-ask">${icon('star', 36)}<p>${t('obs.star.d')}</p></div>
+    <div class="center star-ask-btns"><button class="btn ghost" data-close>${t('obs.star.later')}</button><button class="btn primary" data-star-go>${t('obs.star.btn')}</button></div>
+    ${costumeIdeaRow()}`,
+    'star-modal',
+  );
+  $('[data-star-go]', el).addEventListener('click', () => {
+    pet.star();
+    closeModal();
+  });
+  // 창 안의 data-act 단추는 화면(view) 단추처럼 자동으로 묶이지 않는다. 코스튬 제안하기는 여기서 따로 잇는다
+  const idea = $('[data-act="costumeIdea"]', el);
+  if (idea) idea.addEventListener('click', () => pet.costumeIdea());
+  pet.starShown().then((d) => d && (D = d));
 }
 
 // ---------- 시작 ----------
@@ -3920,5 +3967,6 @@ if (pet.onToast) pet.onToast((x) => x && toast(x.text, x.icon));
   setTab(tab);
   if (D.firstRun) showWelcome();
   else if (D.whatsNew) showWhatsNew();
+  else if (starDue()) showStarAsk(); // '새로 생긴 것'에서 '가 보기'로 넘어가 미뤄 둔 별 안내
   animate();
 })();

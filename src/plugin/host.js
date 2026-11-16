@@ -188,6 +188,7 @@ class KitHost {
     brain.daily = state.get('brainDaily') || {};
     brain.life = state.get('life') || { hungrySince: 0, fedAt: 0 };
     brain.systemIdle = () => this.plugin.idleSeconds();
+    brain.isFull = () => !!this.gauge && this.gauge.full(); // 2.4.1, 이슈 #16
     brain.graceUntil = (state.get('startedAt') || 0) + FIRST_GRACE;
     // 옵시디언판은 타이핑을 hook 처럼 늘 알려 준다 (plugin/main.js 의 onType). 그래서 '같이 쓰는 중'은 타이핑할 때만이다
     brain.lastHookAt = Date.now();
@@ -229,6 +230,8 @@ class KitHost {
     const ver = this.plugin.manifest ? this.plugin.manifest.version : '';
     if (!ver || this.state.get('lastVersion') === ver) return;
     this.state.set({ lastVersion: ver, whatsNew: this.state.get('onboarded') ? ver : null });
+    // 2.5.0: 업데이트한 기존 사용자에게만 별 안내를 한 번 걸어 둔다 (새로 설치한 사람은 아직 써 보지 않았으니 묻지 않는다)
+    if (this.state.get('whatsNew') && !this.state.get('starAsked')) this.state.set({ starPending: true });
     if (this.state.get('whatsNew')) this.later(() => this.state.get('whatsNew') && this.bubble(this.T.t('pet.whatsNew', { v: ver }), 'item', 'whatsnew'), 9000);
   }
 
@@ -619,6 +622,25 @@ class KitHost {
     if (!meal) return { ok: false, wasHungry };
     this.giveFood(meal.key);
     return { ok: true, wasHungry, key: meal.key };
+  }
+
+  // 자동 급식 (2.4.0, 이슈 #13). 켜 두면 배가 고파질 때(25 아래) 창고의 밥을 하나 꺼내 준다.
+  // 산 밥만 쓴다 (창고가 비었으면 아무것도 안 한다). 고양이가 보이면 바닥에 놓아 걸어가 먹고, 숨겨 두었으면 그대로 먹은 걸로 친다
+  autoFeed() {
+    if (!this.settings.get('autoFeed') || this.playing || this.gauge.locked()) return false;
+    if (this.gauge.get().food >= 25) return false;
+    const isMeal = (k) => FOODS.some((x) => x.key === k && x.group === 'meal');
+    if (this.floorTreats.some(isMeal)) return false; // 이미 바닥에 밥이 있다
+    if (this.pet && this.settings.get('showPet') && !(this.stage && this.stage.hidden)) return this.feed().ok;
+    const pantry = this.state.get('pantry') || {};
+    const key = [this.state.get('lastMeal')].find((k) => isMeal(k) && pantry[k] > 0) || (FOODS.find((x) => x.group === 'meal' && pantry[x.key] > 0) || {}).key;
+    const it = key && this.shop.useFood(key);
+    if (!it) return false;
+    this.state.set({ lastFood: key, lastMeal: key });
+    this.gauge.eat('meal', fillOf(it));
+    this.gamify.count('fed');
+    this.brain.meal();
+    return true;
   }
 
   // ---------- 기억하는 고양이 · 하루 한 번 질문 · 쉬는 틈에 한 판 ----------
@@ -1308,6 +1330,8 @@ class KitHost {
       petShown: !!settings.get('showPet'),
       firstRun: !state.get('onboarded'),
       version: this.plugin.manifest ? this.plugin.manifest.version : '',
+      // 2.5.0: 업데이트한 기존 사용자에게 GitHub 별 안내 창을 딱 한 번 ('새로 생긴 것' 창을 닫은 뒤. 보상 없음)
+      starAsk: !!state.get('starPending') && !state.get('starAsked'),
       whatsNew: state.get('whatsNew') || null, // 업데이트 뒤 아직 안 본 '새로 생긴 것' (버전 문자열)
       vault: this.vaultStats(),
       // 동네 친구 · 보물 공방 (2.2.0 에 돌아왔다). 꺼도 가진 것은 그대로라 늘 보내고, 탭을 숨기는 건 하우스가 설정을 보고 한다
@@ -1428,6 +1452,7 @@ class KitHost {
     this.brain.tick();
     this.gauge.tick();
     if (this.gauge.get().food < 25 && !this.brain.hungry()) this.brain.getHungry();
+    this.autoFeed();
     this.checkWorkTier();
     this.toyOfferTick();
     this.focusTick();
@@ -1897,6 +1922,16 @@ class KitHost {
       case 'app:feedback':
         this.plugin.openFeedback();
         return true;
+      case 'app:star':
+        this.plugin.openStar();
+        return true;
+      case 'app:costume-idea':
+        this.plugin.openCostumeIdea();
+        return true;
+      // 별 안내 창을 띄웠다 (다시는 띄우지 않는다)
+      case 'app:star-shown':
+        state.set({ starAsked: true, starPending: false });
+        return this.housePayload();
     }
     return null;
   }
@@ -2070,7 +2105,10 @@ class KitHost {
       const back = excludedBefore.filter((id) => !(allowed.excludedProjects || []).includes(id));
       if (back.length && this.plugin.rebaseline) this.plugin.rebaseline(back);
       // 누적값이 한꺼번에 바뀌어도 퀘스트 진행도는 그대로 두게 기준값을 같이 민다
+      const coinsBefore = shop.writtenCoins();
       gamify.rebaseQuests(() => this.usage.setExcluded(allowed.excludedProjects));
+      // 이미 번 코인은 폴더를 빼도 남는다 (2.4.0, 이슈 #14)
+      shop.keepCoins(coinsBefore - shop.writtenCoins());
       this.state.set({ lastLevel: null, lastStage: null });
       this.recomputeGrowth();
     }

@@ -28,7 +28,8 @@
       tameWin: lines(['{name}搬來我們家了！可以在貓屋的圖鑑看到牠']),
     },
   };
-  for (const lang of Object.keys(LINE)) Object.assign(I.LINE[lang], LINE[lang]);
+  // ko · en · zh 만 번역했다. 다른 언어(ru, 2.6.0)는 영어로 떨어진다 (빠진 키는 한국어로 떨어지니, 영어를 넣어 둔다)
+  for (const lang of Object.keys(I.LINE)) Object.assign(I.LINE[lang], LINE[lang] || LINE.en);
 
   const UI = {
     ko: {
@@ -281,5 +282,5 @@
       'fr.stray.hi': '……喵？',
     },
   };
-  for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
+  for (const lang of Object.keys(I.UI)) Object.assign(I.UI[lang], UI[lang] || UI.en);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

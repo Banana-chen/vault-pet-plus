@@ -19,7 +19,7 @@ Vault Pet turns writing into a cozy little game with a goal you can see. A hand-
 - **It keeps you company.** While you type, your cat types too. Start a new note and leave it blank, and it raises a little `!` and waits for your first line. Write for a while and stop, and it hops with joy.
 - **It looks after you.** Lunch and dinner reminders, a stretch break after two hours of writing, and a gentle "go to bed" when it gets too late.
 - **It knows when to talk.** Small talk waits for your breaks instead of interrupting a sentence, and it remembers what happened: the late night you wrote until 1 AM, the snack it always gets.
-- **There's a lot to collect.** 344 costumes (56 of them endgame star costumes), 36 toys and mini-games, 17 premium dishes, 20 fur colors, 13 ear shapes and 174 badges. All 60 motions are free from the start: pick them per situation or switch them off.
+- **There's a lot to collect.** 345 costumes (56 of them endgame star costumes), 36 toys and mini-games, 17 premium dishes, 20 fur colors, 13 ear shapes and 174 badges. All 60 motions are free from the start: pick them per situation or switch them off.
 - **Neighbors and a treasure workshop.** Neighbor friends drop by now and then, your cat finds tiny treasures, and you craft costumes out of them. Not your thing? Turn either one off in Settings, and nothing you've collected is lost.
 - **It never runs out.** Levels stop at Lv.80, and from then on your writing earns stars for a shop of its own.
 - **It's fair.** Only real new writing counts. Deleting and retyping, undo, pasting or dragging text in, and restoring a deleted note earn nothing.
@@ -145,7 +145,7 @@ Open the house (cat face in the ribbon, or double-click the cat; your cat's name
 - Name, size (5 steps), fur color, ear shape (13 shapes, free from the start)
 - **Theme** for the house: Cream, Cocoa, Mint milk, Sakura, Milk choco, or Auto (follows your Obsidian light or dark theme)
 - **Mute**: turns off every sound effect. Also in Obsidian's plugin settings and the command palette
-- Language (English, 한국어, 中文). It starts in the language your Obsidian is set to
+- Language (English, 한국어, 中文, Русский). It starts in the language your Obsidian is set to. The Russian translation is by [@rimpk901](https://github.com/rimpk901)
 - Speech bubbles, small talk, occasional Obsidian tips
 - Lunch and dinner times, break reminder, when to get sleepy, bedtime, late-night nagging
 - Motions for every situation, with a drag-and-drop editor. All motions are unlocked; switch a situation off to skip its motion, and choose whether full-set costumes mix in their own motions
@@ -208,7 +208,11 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 | **Plugin data file** | Your cat, wallet, badges, hourly writing totals and your Home to-do list | `.obsidian/plugins/vault-pet/data.json`. The only other thing kept is a device name (next row) |
 | **Backup of the data file** | To bring your cat back if `data.json` is ever damaged (a crash mid-save, a sync conflict) | Once a day, a copy is written next to it as `data.backup.json`. A damaged file is kept as `data.broken-<time>.json` rather than deleted. Before merging changes from another device, this device's copy is kept as `data.premerge.json` (at most every 10 minutes) |
 | **A device name** | So two devices that sync the same vault merge their progress instead of overwriting each other | Made once and kept in Obsidian's local storage on this device, where it never syncs. It's a random string with nothing about you or the device in it |
-| **Your browser (link only)** | The **Send feedback** button | Only when you press it. It opens this repository's issue page. Vault Pet itself still makes no network requests |
+| **Your browser (link only)** | The **Send feedback** and **Star on GitHub** buttons | Only when you press one of them. They open this repository's issue page or main page. Vault Pet itself still makes no network requests |
+
+### One-time message
+
+After you update Vault Pet and close the **What's new** window in the Vault Pet house, a small window asks you to star this repository on GitHub if you enjoy the plugin. It appears **once**, inside Vault Pet's own house (never as a pop-up elsewhere in Obsidian), only for people who updated rather than new installs, and it never comes back after that. Nothing in the game depends on it. There are no other messages or ads.
 
 ## FAQ
 

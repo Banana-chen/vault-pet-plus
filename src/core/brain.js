@@ -29,9 +29,10 @@ function inWindow(now, start, len) {
   return d >= 0 && d < len;
 }
 
-// 몇 시인지 말로: 한국어는 '새벽 1'·'밤 11', 중국어는 '凌晨1'·'晚上11', 영어는 '1 AM'·'11 PM' (뒤에 '시'·'點'·'…' 는 대사에서 붙인다)
+// 몇 시인지 말로: 한국어는 '새벽 1'·'밤 11', 중국어는 '凌晨1'·'晚上11', 러시아어는 '1:00'·'23:00', 영어는 '1 AM'·'11 PM' (뒤에 '시'·'點'·'…' 는 대사에서 붙인다)
 function hourLabel(lang, h) {
   if (lang === 'zh') return h === 0 ? '半夜12' : h < 6 ? `凌晨${h}` : h < 9 ? `早上${h}` : h < 12 ? `上午${h}` : h === 12 ? '中午12' : h < 18 ? `下午${h - 12}` : `晚上${h - 12}`;
+  if (lang === 'ru') return `${h}:00`;
   if (lang === 'ko') return h === 0 ? '밤 12' : h < 6 ? `새벽 ${h}` : h < 12 ? `아침 ${h}` : h < 18 ? `오후 ${h === 12 ? 12 : h - 12}` : `밤 ${h - 12}`;
   return h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
 }
@@ -76,6 +77,8 @@ class Brain extends EventEmitter {
 
     // 하루 리듬. life 는 main 이 state.json 에서 넣어 주고, 바뀌면 'life' 이벤트로 알린다
     this.life = { hungrySince: 0, fedAt: 0 };
+    // 배가 든든한가 (배부름 50 이상이거나 프리미엄 음식으로 고정 중). host 가 gauge 로 넣어 준다
+    this.isFull = () => false;
   }
 
   // 가장 최근에 답을 쓰기 시작한 시각 (아무 세션도 아니면 0). 예전 API 그대로
@@ -111,10 +114,12 @@ class Brain extends EventEmitter {
     this.nagged.delete(sid);
   }
 
-  // 배고픈가? 밥때 알림이 떴는데 아직 안 먹였으면 배고프다 (4시간 지나면 스스로 포기한다)
+  // 배고픈가? 밥때 알림이 떴는데 아직 안 먹였으면 배고프다 (4시간 지나면 스스로 포기한다).
+  // 배가 든든하면 밥때여도 배고프지 않다 (2.4.1, 이슈 #16: 점심 알림이 용왕님 생일상의 24시간 고정을 무시하고
+  // 배부름 100 인 고양이를 배고프게 만들었다. 저장된 배고픔도 여기서 가려진다)
   hungry(now = Date.now()) {
     const h = this.life.hungrySince;
-    return !!h && now - h < 4 * 60 * MIN;
+    return !!h && now - h < 4 * 60 * MIN && !this.isFull(now);
   }
 
   // 방금 밥을 먹었나? (먹고 나서 잠깐은 배부른 티를 낸다)
@@ -124,7 +129,7 @@ class Brain extends EventEmitter {
 
   // 밥때가 됐다고 표시한다 (알림이 떴을 때)
   getHungry(at = Date.now()) {
-    if (this.hungry(at)) return;
+    if (this.hungry(at) || this.isFull(at)) return;
     this.life = { ...this.life, hungrySince: at };
     this.emit('life', this.life);
   }
