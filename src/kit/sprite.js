@@ -1125,7 +1125,10 @@
       const { c, flash } = g;
       const map = { O: c.outline, B: c.body, S: c.stripe || c.shade, L: c.light, M: c.belly, P: c.ear, C: c.cheek, E: c.eye };
       // 털색 무늬 (흰 양말·삼색·무지개·반짝이). 손님 고양이(fur)는 자기 mask·tail 이 있을 때만 (GUEST_FURS)
-      const F = this.fur ? (this.fur.mask || this.fur.tail ? this.fur : null) : this.furKey ? FURS[this.furKey] : null;
+      const F0 = this.fur ? (this.fur.mask || this.fur.tail ? this.fur : null) : this.furKey ? FURS[this.furKey] : null;
+      // [Plus] 3단계 고양이는 털이 가끔 반짝인다 (kit/breeds.js 의 sparkle). 이미 움직이는 털색이면 그대로
+      const SP = !this.fur && this.stageDef().sparkle;
+      const F = SP && !(F0 && (F0.sparkle || F0.stars || F0.aurora || F0.neon || F0.holo || F0.rainbow)) ? { ...(F0 || {}), sparkle: SP } : F0;
       const isBody = F && rows === g.m.rows;
       const isTail = F && !isBody && rows.length === 1 && g.m.tail && g.m.tail.rows.includes(rows[0]);
       const tj = isTail ? this._tj++ : -1;

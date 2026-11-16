@@ -79,9 +79,22 @@ const BREEDS = [
   },
 ];
 
+// 단계 전용 모션 (kit/motions.js 의 이름). 2단계부터, 심심할 때 세트 전용 모션처럼 저절로 섞여 나온다 (plugin/host.js idlePool).
+// 첫 것은 진화 직후 한 번 보여 준다. 상점 · 설정에는 안 나온다
+const STAGE_MOTIONS = {
+  cat2: ['slowblink', 'shinyfur'], cat3: ['aura', 'glowup', 'coronation'],
+  puff2: ['bubbleplay'], puff3: ['cloudloop', 'bubbleplay'],
+  scholar2: ['dozebook'], scholar3: ['calligraphy', 'examboard', 'dozebook'],
+  weaver2: ['webhang'], weaver3: ['spider', 'webhang'],
+  owl2: ['slowblink'], owl3: ['starcall', 'slowblink'],
+  dash2: ['airpunch'], dash3: ['rocket', 'zoomies'],
+  star2: ['starcall'], star3: ['holywings', 'starcall'],
+  twin2: ['soul'], twin3: ['ghost', 'soul'],
+};
+
 const START_BREED = 'cheese';
 const breedOf = (key) => BREEDS.find((b) => b.key === key) || null;
 // 단계 열쇠 → 품종 (그림 · 이름 찾기)
 const breedOfStage = (stageKey) => BREEDS.find((b) => b.stages.some((s) => s.key === stageKey)) || null;
 
-module.exports = { BREEDS, START_BREED, breedOf, breedOfStage };
+module.exports = { BREEDS, START_BREED, STAGE_MOTIONS, breedOf, breedOfStage };

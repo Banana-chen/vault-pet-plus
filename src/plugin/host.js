@@ -8,6 +8,7 @@ const { computeGrowth, xpOf, levelOf, FURS, EAR_SHAPES, STAGES, foldStage, CHARS
 const { Goals, cleanGoal, GOAL_COINS, GOAL_XP, FOCUS_LENGTHS, BREAK_LENGTHS } = require('../core/goals');
 const { Brain } = require('../core/brain');
 const { Gamify } = require('../core/gamify');
+const { STAGE_MOTIONS } = require('../core/breeds'); // [Plus] 진화 단계 전용 모션
 const { SET_MOTIONS, COSTUME_SLOTS, outfitList, fillOf, Shop, ACCESSORIES, FOODS, TOYS, MOTIONS, MOTION_SLOTS, slotOf, find: findItem } = require('../core/shop');
 const stats = require('../core/stats');
 const { Treasures, TREASURES } = require('../core/treasure');
@@ -763,7 +764,13 @@ class KitHost {
   }
 
   idlePool() {
-    return [...this.motionList('idle'), ...this.setMotions()];
+    return [...this.motionList('idle'), ...this.setMotions(), ...this.stageMotions()];
+  }
+
+  // [Plus] 진화 단계 전용 모션 (core/breeds.js STAGE_MOTIONS). 세트 전용 모션과 같은 자리에 섞인다
+  stageMotions() {
+    if (!this.growth || this.motionOff('idle')) return [];
+    return STAGE_MOTIONS[this.growth.stageKey] || [];
   }
 
   workSlot() {
@@ -1207,6 +1214,9 @@ class KitHost {
         this.send('pet:config', this.petConfig());
         this.send('pet:action', 'evolve');
         this.sound('evolve');
+        // [Plus] 번쩍이고 새 모습이 된 뒤, 그 단계의 첫 전용 모션을 한 번 보여 준다
+        const sig = (STAGE_MOTIONS[g.stageKey] || [])[0];
+        if (sig) this.later(() => this.send('pet:action', sig), 2600);
         this.later(() => this.bubble(this.T.line('grow', { name, stage: this.stageName(g) }), 'grow'), 1700);
       } else if (g.level > lastLevel) {
         this.act('levelup');

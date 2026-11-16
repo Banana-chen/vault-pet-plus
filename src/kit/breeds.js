@@ -3,6 +3,7 @@
 //  - 몸 도트는 15칸 × 13줄, 맨 위 세 줄(귀)과 꾸미기 기준점(acc)은 원래 고양이와 같다 → 귀 고르기 · 코스튬이 그대로 맞는다
 //  - 품종을 가르는 건 몸 윤곽 · 다리 · 꼬리 · 눈 크기와, 털색 위에 늘 그리는 무늬(mark)
 //  - 2단계는 특징이 자라고(갈기 · 긴 꼬리 · 무늬 늘기), 3단계는 늘 움직이는 효과가 붙는다
+//  - 단계마다 몸이 한 줄씩 커지고 꼬리가 길어진다 (맨 아래 evolve). 3단계는 꼬리 끝이 빛나고 털이 가끔 반짝인다. 전용 모션은 core/breeds.js STAGE_MOTIONS
 // mark(g, a, t): this = PetRenderer, a = 기준점 (sprite.js 의 anchorsOf), t = 초
 (function (root) {
   const S = root.PetSprite;
@@ -331,15 +332,33 @@
   const twin2 = grow(twin1, null, wisp(1));
   const twin3 = grow(twin1, null, marks(wisp(2), orbit('#9fd4ff', 2, 11, -1.3)));
 
+  /* ── 자라는 몸: 2단계 +1줄 · 3단계 +2줄, 꼬리도 그만큼 길어지고 3단계는 꼬리 끝이 빛나며 털이 가끔 반짝인다 ── */
+  // 목(acc.neck) 바로 아래 줄을 복제해서 키운다. 머리 · 귀 · 코스튬 기준점은 그대로, 다리만 내려간다 (sprite.js 는 바닥 기준이라 발은 늘 땅에)
+  const taller = (def, n) => {
+    const rows = def.map.rows, at = def.map.acc.neck + 1;
+    return { ...def, map: { ...def.map, rows: [...rows.slice(0, at), ...Array(n).fill(rows[at]), ...rows.slice(at)], cy: def.map.cy + n / 2, ry: def.map.ry + n / 2, _meta: undefined } };
+  };
+  // 꼬리: 끝(첫 줄) 바로 아래 줄을 n 번 더 넣어 길게, 붙는 자리는 그대로. glow 면 끝 두 줄의 털이 밝은 색
+  const longer = (tail, n, glow) => {
+    const rows = [tail.rows[0], ...Array(n).fill(tail.rows[1] || tail.rows[0]), ...tail.rows.slice(1)];
+    return { ...tail, y: tail.y - n, rows: glow ? rows.map((r, j) => (j < 2 ? r.replace(/B/g, 'L') : r)) : rows };
+  };
+  const evolve = (def, n) => {
+    const d = taller(def, n);
+    if (d.map.tail) d.map.tail = longer(d.map.tail, n, n > 1);
+    if (n > 1) d.sparkle = '#fffbe0'; // sprite.js drawMap 이 읽는다
+    return d;
+  };
+
   Object.assign(S.STAGE, {
-    cat: cheese1, cat2: cheese2, cat3: cheese3,
-    puff: puffBase, puff2, puff3,
-    scholar: scholarBase, scholar2, scholar3,
-    weaver: weaverBase, weaver2, weaver3,
-    owl: owlBase, owl2, owl3,
-    dash: dashBase, dash2, dash3,
-    star: starBase, star2, star3,
-    twin: twin1, twin2, twin3,
+    cat: cheese1, cat2: evolve(cheese2, 1), cat3: evolve(cheese3, 2),
+    puff: puffBase, puff2: evolve(puff2, 1), puff3: evolve(puff3, 2),
+    scholar: scholarBase, scholar2: evolve(scholar2, 1), scholar3: evolve(scholar3, 2),
+    weaver: weaverBase, weaver2: evolve(weaver2, 1), weaver3: evolve(weaver3, 2),
+    owl: owlBase, owl2: evolve(owl2, 1), owl3: evolve(owl3, 2),
+    dash: dashBase, dash2: evolve(dash2, 1), dash3: evolve(dash3, 2),
+    star: starBase, star2: evolve(star2, 1), star3: evolve(star3, 2),
+    twin: twin1, twin2: evolve(twin2, 1), twin3: evolve(twin3, 2),
   });
   S.STAGES = Object.keys(S.STAGE);
 })(window);

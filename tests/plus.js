@@ -232,6 +232,22 @@ test('applyLink: 그 자리를 [[제목|원래 글자]] 로, 글이 바뀌었으
 
 /* ── 진화 ── */
 
+test('breeds: 단계 전용 모션은 2단계부터 품종마다 있고, 이름이 kit/motions.js 에 다 있다', () => {
+  const fs = require('fs');
+  const { BREEDS, STAGE_MOTIONS } = require(path.join(src, 'core/breeds'));
+  const motionsSrc = fs.readFileSync(path.join(src, 'kit/motions.js'), 'utf8');
+  for (const b of BREEDS) {
+    assert.ok(!STAGE_MOTIONS[b.stages[0].key], `${b.key}: 1단계에는 전용 모션이 없다`);
+    for (const s of b.stages.slice(1)) {
+      const list = STAGE_MOTIONS[s.key];
+      assert.ok(Array.isArray(list) && list.length, `${s.key}: 전용 모션`);
+      for (const m of list) assert.ok(motionsSrc.includes(`\n    ${m}: {`), `${s.key}: 모션 ${m} 이 kit/motions.js 에 없다`);
+    }
+  }
+  const known = new Set(BREEDS.flatMap((b) => b.stages.map((s) => s.key)));
+  for (const k of Object.keys(STAGE_MOTIONS)) assert.ok(known.has(k), `모르는 단계 ${k}`);
+});
+
 test('growth: 진화는 레벨 · 링크 · 맞힌 문제를 다 채워야 한다', () => {
   const usage = { totals: () => ({ c: 0, l: 0, n: 0, s: 0 }) };
   const xpLv = (lv) => 25 * (lv - 1) ** 2;
