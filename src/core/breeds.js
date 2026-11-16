@@ -77,6 +77,43 @@ const BREEDS = [
       { key: 'twin3', need: { level: 35, links: 60, nights: 30 } },
     ],
   },
+  // ── 2026-11 새 품종 넷. meet = 이 조건으로 생긴 만남 표일 때 더 잘 나온다 (core/collection.js pickBreed) ──
+  // 새싹: 머리에 떡잎, 잎 꼬리. 꾸준히 매일 쓰면 자란다
+  {
+    key: 'sprout', rarity: 'common', fur: 'mint', ears: 'round', meet: ['streak3', 'streak7', 'streak14', 'weekend'],
+    stages: [
+      { key: 'sprout', need: { level: 1 } },
+      { key: 'sprout2', need: { level: 12, days: 10 } },
+      { key: 'sprout3', need: { level: 30, days: 40 } },
+    ],
+  },
+  // 물방울: 이마 물방울, 물고기 꼬리. 긴 글을 많이 쓰면 자란다
+  {
+    key: 'tide', rarity: 'common', fur: 'silver', ears: 'small', meet: ['chars40k', 'chars60k', 'chars100k', 'bigNote'],
+    stages: [
+      { key: 'tide', need: { level: 1 } },
+      { key: 'tide2', need: { level: 12, chars: 40_000 } },
+      { key: 'tide3', need: { level: 30, chars: 180_000 } },
+    ],
+  },
+  // 톱니: 안테나와 볼트. 링크를 정리하고 복습을 맞히면 자란다
+  {
+    key: 'gear', rarity: 'common', fur: 'cream', ears: 'tnr', meet: ['tidy3', 'tidy8', 'tidy15', 'allClear'],
+    stages: [
+      { key: 'gear', need: { level: 1 } },
+      { key: 'gear2', need: { level: 12, links: 12, correct: 25 } },
+      { key: 'gear3', need: { level: 30, links: 40, correct: 120 } },
+    ],
+  },
+  // 아기용 (귀함): 작은 뿔, 화살촉 꼬리. 오래 꾸준히 많이 써야 자란다
+  {
+    key: 'dragon', rarity: 'rare', fur: 'lilac', ears: 'intilt', meet: ['streak21', 'chars250k', 'correct120', 'links60', 'notes5'],
+    stages: [
+      { key: 'dragon', need: { level: 1 } },
+      { key: 'dragon2', need: { level: 15, chars: 60_000, days: 14 } },
+      { key: 'dragon3', need: { level: 35, chars: 250_000, days: 45 } },
+    ],
+  },
 ];
 
 // 단계 전용 모션 (kit/motions.js 의 이름). 2단계부터, 심심할 때 세트 전용 모션처럼 저절로 섞여 나온다 (plugin/host.js idlePool).
@@ -90,6 +127,10 @@ const STAGE_MOTIONS = {
   dash2: ['airpunch'], dash3: ['rocket', 'zoomies'],
   star2: ['starcall'], star3: ['holywings', 'starcall'],
   twin2: ['soul'], twin3: ['ghost', 'soul'],
+  sprout2: ['teatime'], sprout3: ['fandance', 'teatime'],
+  tide2: ['bath'], tide3: ['bubbleplay', 'bath'],
+  gear2: ['recharge'], gear3: ['rocketpunch', 'reboot', 'recharge'],
+  dragon2: ['fireup'], dragon3: ['rocket', 'fireup', 'aura'],
 };
 
 const START_BREED = 'cheese';

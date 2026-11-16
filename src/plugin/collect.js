@@ -226,7 +226,7 @@ class Collector {
     if (s.stray && !C.strayHere(s, now)) return this.dismissStray();
     if (s.stray) return this.showStray();
     if (!C.ticketDue(s, today) || !this.present()) return;
-    const breed = C.pickBreed(s);
+    const breed = C.pickBreed(s, Math.random, today);
     // 다 모았으면 표는 쓸모가 없다
     if (!breed) return this.set({ ...s, tickets: [] });
     s = C.startStray(s, breed, today, now);

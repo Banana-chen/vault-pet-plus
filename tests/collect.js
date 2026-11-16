@@ -15,8 +15,8 @@ const test = (name, fn) => tests.push({ name, fn });
 
 /* ── 품종 ── */
 
-test('breeds: 8 품종, 처음 고양이는 원래 진화 조건 그대로, 품종마다 단계 열쇠가 겹치지 않는다', () => {
-  assert.strictEqual(BREEDS.length, 8);
+test('breeds: 12 품종, 처음 고양이는 원래 진화 조건 그대로, 품종마다 단계 열쇠가 겹치지 않는다', () => {
+  assert.strictEqual(BREEDS.length, 12);
   const cheese = breedOf('cheese');
   assert.deepStrictEqual(cheese.stages.map((s) => s.key), ['cat', 'cat2', 'cat3']);
   assert.deepStrictEqual(cheese.stages[1].need, { level: 15, links: 10, correct: 20 });
@@ -124,6 +124,17 @@ test('pickBreed: 이미 데려온 품종은 안 나오고, 귀한 품종은 몇 
   }
   for (const b of BREEDS) s = C.adopt(s, b.key, { raw: 0, chars: 0, now: 1 });
   assert.strictEqual(C.pickBreed(s, Math.random), null);
+});
+
+test('pickBreed: 만남 표를 만든 조건을 좋아하는 품종(meet)이 더 자주 나온다', () => {
+  const s = { ...C.seed({}, 0), tickets: [{ why: 'tidy8', due: 5 }] };
+  let gear = 0, plain = 0;
+  for (let i = 0; i < 600; i++) {
+    if (C.pickBreed(s, Math.random, 5) === 'gear') gear++;
+    if (C.pickBreed(s, Math.random) === 'gear') plain++;
+  }
+  assert.ok(gear > plain * 2, `gear ${gear} vs ${plain}`);
+  for (const b of BREEDS) for (const id of b.meet || []) assert.ok(/^[a-zA-Z0-9]+$/.test(id), id);
 });
 
 test('stray: 표가 있는 날에만 나타나고, 표 하나를 쓰고, 처음 본 품종을 기록, 15분 뒤 떠난다', () => {

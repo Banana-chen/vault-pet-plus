@@ -574,6 +574,250 @@
     },
   );
 
+  /* ══ 새 품종 넷 (2026-11) ══ */
+
+  /* ── 새싹: 머리에 떡잎 → 꽃봉오리(큰 잎 · 덩굴 목걸이) → 숲지기(가지 뿔 · 꽃 · 나비 · 꽃잎) ── */
+  const LEAF = { G: '#6fcf5a', g: '#3f9a3a', P: '#ff8fb5', p: '#e0608a', Y: GOLD, K: '#7a5a32', O: '#2f5a2a' };
+  const SPR_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', 'OBBBBMMMMMBBBBO', '.OBBBMMMMMBBBO.'];
+  const SPR_FEET = ['..OBBOOOOOBBO..', '..OOO.....OOO..'];
+  function sproutLeaf(g, a, t) {
+    const s = per(t, 3, 0.4) ? 1 : 0;
+    this.pattern(['GG...GG', '.GGgGG.', '...g...'], a.hx - 3 + s, a.top - 2, LEAF);
+  }
+  const sprout1 = form([...SPR_HEAD, '.OBBBBMMMBBBBO.', ...SPR_FEET], { x: 13, y: 5, rows: ['..OO', '.OLO', 'OLLO', 'OLO.', 'OO..'] }, { mark: sproutLeaf });
+  const PETAL = ['..OO.', '.OGGO', 'OGgGO', 'OGgGO', 'OGgGO', '.OGO.'];
+  const sprout2 = form(
+    [...SPR_HEAD, '.OBBBBMMMBBBBO.', '.OBBBBMMMBBBBO.', ...SPR_FEET],
+    { x: 13, y: 4, rows: ['...OO', '..OLO', '.OLLO', 'OLBLO', 'OLLO.', 'OBO..', 'OO...'] },
+    {
+      back: awake(function (g, a) {
+        this.pattern(PETAL, a.right - 1, a.top, LEAF, false);
+        this.pattern(mir(PETAL), a.left - 3, a.top, LEAF, false);
+        this.pattern(PETAL.slice(1), a.right + 1, a.top + 5, LEAF, false);
+        this.pattern(mir(PETAL.slice(1)), a.left - 5, a.top + 5, LEAF, false);
+      }),
+      mark: awake(function (g, a, t) {
+        // 머리 위 꽃봉오리 (가끔 살짝 벌어진다), 덩굴 목걸이
+        const open = per(t, 4, 1);
+        this.pattern(open ? ['.P.P.', 'PPYPP', '.PpP.', 'GGgGG', '..g..'] : ['..P..', '.PPP.', '.PpP.', 'GGgGG', '..g..'], a.hx - 2, a.top - 4, LEAF);
+        for (let i = 0; i < 11; i++) this.px(a.left + 1 + i, a.neck, i % 2 ? LEAF.g : LEAF.G);
+        this.pattern(['P.P', '.Y.', 'P.P'], a.hx - 1, a.neck - 1, LEAF);
+      }),
+    },
+  );
+  const BRANCH = ['....G..GG', '.GG.GK.G.', '.GPG.K.K.', '..GK.KK..', '...KKK...', '....K....', '....K....'];
+  const sprout3 = form(
+    [...SPR_HEAD, 'OBBBBBMMMBBBBBO', 'OBBSBBMMMBBSBBO', '.OBBBBMMMBBBBO.', ...SPR_FEET],
+    { x: 13, y: 3, rows: ['.OO..', 'OLLO.', 'OLO..', '.OBO.', '..OBO', '..OBO', '.OBO.', 'OBO..', 'OO...'] },
+    {
+      sparkle: '#eaffd8',
+      back: awake(function (g, a) {
+        // 머리에서 뻗은 나뭇가지 뿔, 등 뒤 큰 잎
+        this.pattern(BRANCH, a.hx + 1, a.top - 7, LEAF, false);
+        this.pattern(mir(BRANCH), a.hx - 9, a.top - 7, LEAF, false);
+        this.pattern(PETAL, a.right, a.top + 2, LEAF, false);
+        this.pattern(mir(PETAL), a.left - 4, a.top + 2, LEAF, false);
+      }),
+      mark: marks(awake(function (g, a, t) {
+        // 이마의 화관, 흩날리는 꽃잎
+        this.pattern(['P.G.Y.G.P', '.G.P.P.G.'], a.hx - 4, a.top + 1, LEAF);
+        for (let i = 0; i < 11; i++) this.px(a.left + 1 + i, a.neck, i % 3 === 1 ? LEAF.P : LEAF.G);
+        for (let k = 0; k < 6; k++) {
+          const p = (t * 0.25 + k / 6) % 1;
+          this.px(a.cx - 15 + k * 6 + Math.round(Math.sin(t * 1.5 + k * 2) * 2), a.top - 8 + p * 30, k % 2 ? LEAF.P : '#ffd0e0', false);
+        }
+      }), orbit('#ff8fb5', 2, 14, 0.9)),
+    },
+  );
+
+  /* ── 물방울: 이마 물방울 · 물고기 꼬리 → 파도(볼 지느러미 · 물보라) → 해룡(큰 지느러미 · 산호 뿔 · 수염 · 물 고리) ── */
+  const SEA = { B: '#4aa8e8', b: '#9fd8ff', W: '#ffffff', O: '#2b6fa8', R: '#ff8fa3', r: '#e0607a' };
+  const TIDE_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '..OBBBBBBBBBO..', '..OBBMMMMMBBO..', '...OBMMMMMBO...'];
+  const TIDE_FEET = ['...OBOOOOOBO...', '...OO.....OO...'];
+  function tideFace(g, a) {
+    this.pattern(['.B.', 'BbB', 'BBB', '.B.'], a.hx - 1, a.top, SEA);
+    for (const [x, d] of [[a.left + 1, 1], [a.right - 1, -1]]) {
+      this.px(x, a.my, SEA.B);
+      this.px(x + d, a.my, SEA.B);
+      this.px(x, a.my + 2, SEA.B);
+    }
+  }
+  function tideWave(g, a, t) {
+    const f = Math.floor(t * 4) % 3;
+    const row = (s) => (s.repeat(8)).slice(f, f + 20);
+    this.pattern([row('.b.'), row('bBb'), row('BBB')], a.cx - 10, a.ground - 2, SEA, false);
+  }
+  function tideBubbles(g, a, t) {
+    for (let k = 0; k < 4; k++) {
+      const p = (t * 0.35 + k * 0.27) % 1;
+      const x = a.cx + (k % 2 ? 11 : -12) + (k > 1 ? 3 : 0) + Math.round(Math.sin(t * 2 + k) * 1.5), y = a.ground - 4 - p * 26;
+      this.pattern(k % 2 ? ['.B.', 'B.B', '.B.'] : ['B'], x, y, SEA, false);
+    }
+  }
+  const tide1 = form([...TIDE_HEAD, '...OBMMMMMBO...', ...TIDE_FEET], { x: 13, y: 4, rows: ['O...O', 'OLOLO', 'OLLLO', '.OLO.', '.OBO.', 'OBO..', 'OO...'] }, { mark: tideFace });
+  const FIN = ['...OO', '..ObO', '.ObBO', 'ObBBO', '.ObBO', 'ObBBO', '.ObBO', '..OOO'];
+  const tide2 = form(
+    [...TIDE_HEAD, '..OBBMMMMMBBO..', '...OBMMMMMBO...', ...TIDE_FEET],
+    { x: 13, y: 2, rows: ['OO...OO', 'OLO.OLO', 'OLLOLLO', '.OLLLO.', '..OLO..', '..OBO..', '.OBO...', 'OBO....', 'OO.....'] },
+    {
+      back: awake(function (g, a) {
+        this.pattern(FIN, a.left - 4, a.top + 1, SEA, false);
+        this.pattern(mir(FIN), a.right, a.top + 1, SEA, false);
+      }),
+      mark: marks(tideFace, awake(tideBubbles), awake(tideWave)),
+    },
+  );
+  const FRILL = ['.....OO', '...OObO', '..ObBBO', '.ObBbBO', 'ObBBBBO', '.ObBbBO', 'ObBBBBO', '.ObBbBO', '..ObBBO', '...OOOO'];
+  const tide3 = form(
+    [...TIDE_HEAD, '..OBBMMMMMBBO..', '..OBSMMMMMSBO..', '...OBMMMMMBO...', ...TIDE_FEET],
+    { x: 13, y: 0, rows: ['OO...OO', 'OLO.OLO', 'OLLOLLO', '.OLLLO.', '..OLO..', '..OBO..', '..OBO..', '.OBO...', '.OBO...', 'OBO....', 'OO.....'] },
+    {
+      sparkle: '#dff6ff',
+      back: awake(function (g, a, t) {
+        // 머리 뒤로 도는 물 고리, 큰 지느러미, 산호 뿔
+        for (let d = 0; d < 60; d++) {
+          const ang = (d * Math.PI) / 30;
+          if (Math.sin(ang) > 0.55) continue;
+          const c = (d + Math.floor(t * 10)) % 6 === 0 ? SEA.W : d % 2 ? SEA.B : SEA.b;
+          this.px(a.hx + Math.cos(ang) * 15, a.top + 5 + Math.sin(ang) * 13, c, false);
+        }
+        this.pattern(FRILL, a.left - 6, a.top, SEA, false);
+        this.pattern(mir(FRILL), a.right, a.top, SEA, false);
+        this.pattern(['R.R..', 'R.Rr.', '.RR..', '.Rr..', '.R...'], a.hx - 7, a.top - 5, SEA, false);
+        this.pattern(mir(['R.R..', 'R.Rr.', '.RR..', '.Rr..', '.R...']), a.hx + 3, a.top - 5, SEA, false);
+      }),
+      mark: marks(tideFace, awake(function (g, a, t) {
+        // 물결치는 긴 수염
+        for (let j = 0; j < 8; j++) {
+          const w = Math.round(Math.sin(t * 2 + j * 0.7) * 1.2);
+          this.px(a.left - 1 - Math.floor(j / 3) + w, a.my + 1 + j, SEA.b, false);
+          this.px(a.right + 1 + Math.floor(j / 3) + w, a.my + 1 + j, SEA.b, false);
+        }
+      }), awake(tideWave), orbit('#9fd8ff', 3, 14, 1.2)),
+    },
+  );
+
+  /* ── 톱니: 안테나 · 볼트 → 태엽(등의 태엽 열쇠 · 가슴 불빛) → 강철(바이저 · 추진기 · 가슴 코어 · 도는 톱니) ── */
+  const MET = { K: '#4d5661', k: '#9aa5b3', Y: GOLD, y: '#d9a21f', C: '#5fe3ff', R: '#ff5a5a', W: '#ffffff', O: '#2c333c' };
+  const GEAR_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '..OOOOOOOOOOO..'];
+  const GEAR_FEET = ['.OBBOOBBBOOBBO.', '..OO..OOO..OO..'];
+  function gearBolts(g, a) {
+    this.pattern(['kkk', 'kKk', 'kkk'], a.hx - 1, a.top + 1, MET);
+    this.px(a.left + 2, a.my + 1, MET.k);
+    this.px(a.right - 2, a.my + 1, MET.k);
+  }
+  function antenna(g, a, t) {
+    this.rect(a.hx, a.top - 3, 1, 3, MET.K);
+    this.pattern(['.R.', 'RRR', '.R.'], a.hx - 1, a.top - 6, { R: per(t, 1.6, 0.8) ? MET.R : '#8a2f2f' }, false);
+  }
+  const gear1 = form([...GEAR_HEAD, '.OBBSMMMMMSBBO.', ...GEAR_FEET], { x: 13, y: 5, rows: ['.OOO', '.OLO', '.OOO', 'OBO.', 'OBO.', 'OO..'] }, { mark: marks(gearBolts, awake(antenna)) });
+  const gear2 = form(
+    [...GEAR_HEAD, '.OBBSMMMMMSBBO.', '.OBBSMMMMMSBBO.', ...GEAR_FEET],
+    { x: 13, y: 5, rows: ['.OOO', '.OLO', '.OOO', 'OBO.', 'OBO.', 'OBO.', 'OO..'] },
+    {
+      // 등에 꽂힌 태엽 열쇠가 돈다
+      back: awake(function (g, a, t) {
+        const flat = per(t, 1.2, 0.3) || per(t + 0.6, 1.2, 0.3);
+        this.pattern(
+          flat ? ['....O....', '...OYO...', '...OYO...', '...OYO...', '...OYO...', '....Y....', '....Y....', '....Y....'] : ['.OOO.OOO.', 'OYYYOYYYO', 'OY.YOY.YO', 'OYYYOYYYO', '.OOOYOOO.', '....Y....', '....Y....', '....Y....'],
+          a.hx - 4, a.top - 8, MET, false,
+        );
+      }),
+      mark: marks(gearBolts, awake(function (g, a, t) {
+        // 가슴의 불빛, 옆으로 새는 김
+        this.pattern(['KKKKK', 'KCRYK', 'KKKKK'], a.hx - 2, a.neck + 1, { ...MET, C: per(t, 1, 0.5) ? MET.C : '#2a6f80' });
+        const p = (t * 0.6) % 1;
+        if (p < 0.6) this.pattern(['.W', 'WW'], a.left - 3 - Math.round(p * 4), a.neck - 1 - Math.round(p * 5), { W: 'rgba(255,255,255,0.8)' }, false);
+      })),
+    },
+  );
+  const POD = ['.OOO.', 'OkkkO', 'OkKkO', 'OkKkO', 'OKKKO', '.OOO.'];
+  const gear3 = form(
+    [...GEAR_HEAD, 'OOBBSMMMMMSBBOO', 'OBBBSMMMMMSBBBO', 'OBBBSMMMMMSBBBO', ...GEAR_FEET],
+    { x: 13, y: 7, rows: ['.OOO', '.OLO', '.OOO', 'OBO.', 'OO..'] },
+    {
+      sparkle: '#e8f6ff',
+      back: awake(function (g, a, t) {
+        // 어깨의 추진기와 불꽃, 쌍 안테나
+        const f = Math.floor(t * 10) % 2;
+        for (const x of [a.left - 5, a.right + 1]) {
+          this.pattern(POD, x, a.neck - 4, MET, false);
+          this.pattern(f ? ['.YYY.', '.RYR.', '..R..'] : ['.YYY.', '.RYR.', '.R.R.', '..R..'], x, a.neck + 2, FIRE, false);
+        }
+        for (const d of [-1, 1]) {
+          for (let j = 0; j < 5; j++) this.px(a.hx + d * (5 + (j > 2 ? 1 : 0)), a.top - j, MET.K, false);
+          this.pattern(['C', 'C'], a.hx + d * 6, a.top - 6, { C: per(t + (d > 0 ? 0.4 : 0), 0.8, 0.4) ? MET.C : MET.W }, false);
+        }
+      }),
+      mark: marks(gearBolts, awake(function (g, a, t) {
+        // 눈 위를 훑는 바이저, 뛰는 가슴 코어, 둘레를 도는 톱니
+        const x0 = a.eyeL - 1, w = a.eyeR + a.ew + 1 - x0;
+        this.rect(x0, a.ey - 2, w, 1, MET.C);
+        this.px(x0 + (Math.floor(t * 8) % w), a.ey - 2, MET.W);
+        const big = per(t, 1, 0.5);
+        this.pattern(big ? ['.CCC.', 'CCWCC', 'CWWWC', 'CCWCC', '.CCC.'] : ['.....', '.CCC.', '.CWC.', '.CCC.', '.....'], a.hx - 2, a.neck + 1, MET);
+        for (let k = 0; k < 2; k++) {
+          const ang = t * 1.2 + k * Math.PI, turn = Math.floor(t * 4) % 2;
+          this.pattern(turn ? ['.k.k.', 'kkkkk', '.kKk.', 'kkkkk', '.k.k.'] : ['k.k.k', '.kkk.', 'kkKkk', '.kkk.', 'k.k.k'], a.cx + Math.cos(ang) * 15 - 2, a.cy - 6 + Math.sin(ang) * 6, MET, false);
+        }
+      })),
+    },
+  );
+
+  /* ── 아기용 (귀함): 작은 뿔 → 날개(박쥐 날개 · 콧김) → 화룡(큰 날개 · 긴 뿔 · 불 뿜기) ── */
+  const DRG = { H: GOLD, h: '#d9a21f', M: '#a56ae8', m: '#6f3fb8', O: '#3a2458', R: '#ff5a5a', W: '#ffffff' };
+  const DRG_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', '..OBBMMMMMBBO..', '..OBMMMMMMMBO..'];
+  const DRG_FEET = ['..OBBOOOOOBBO..', '..OOO.....OOO..'];
+  const horns = (rows) => function (g, a) {
+    this.pattern(rows, a.hx + 3, a.top - rows.length + 2, DRG, false);
+    this.pattern(mir(rows), a.hx - 2 - rows[0].length, a.top - rows.length + 2, DRG, false);
+  };
+  function snort(g, a, t) {
+    const p = (t * 0.5) % 1;
+    if (p > 0.5) return;
+    for (const d of [-1, 1]) this.pattern(['WW', 'WW'], a.hx + d * (3 + Math.round(p * 6)) - (d < 0 ? 1 : 0), a.my + 1 - Math.round(p * 6), { W: 'rgba(255,255,255,0.75)' }, false);
+  }
+  const dragon1 = form([...DRG_HEAD, '..OBBMMMMMBBO..', ...DRG_FEET], { x: 13, y: 4, rows: ['..O..', '.OLO.', 'OLLLO', '.OBO.', '.OBO.', 'OBO..', 'OO...'] }, { mark: horns(['H', 'H', 'h']) });
+  const SWING = ['OOOO....', 'OMMMOO..', 'OMmMMMO.', 'OMOMmMMO', 'OO.OMOMO', '....O.O.'];
+  const dragon2 = form(
+    [...DRG_HEAD, '..OBMMMMMMMBO..', '..OBBMMMMMBBO..', ...DRG_FEET],
+    { x: 13, y: 3, rows: ['..O..', '.OLO.', 'OLLLO', 'OLLLO', '.OBO.', '.OBO.', 'OBO..', 'OO...'] },
+    {
+      back: awake(function (g, a, t) {
+        const up = per(t, 1.2, 0.6) ? 0 : 1;
+        this.pattern(SWING, a.right - 1, a.neck - 7 + up, DRG, false);
+        this.pattern(mir(SWING), a.left - 6, a.neck - 7 + up, DRG, false);
+      }),
+      mark: marks(horns(['.H', 'HH', 'Hh', 'h.']), awake(snort)),
+    },
+  );
+  const BWING_UP = ['.......OOO.', '.....OOMMMO', '...OOMMmMMO', '.OOMMMmMMMO', 'OMMMmMMOMMO', 'OMmMMMO.OMO', 'OMMMOO..OMO', 'OMOO.....O.', 'OO.........'];
+  const BWING_DN = ['OOOO.......', 'OMMMOOO....', 'OMmMMMMOO..', 'OMMmMMMMMO.', '.OMMmMMOMMO', '.OMMMMO.OMO', '..OMMO..OMO', '..OMO....O.', '...O.......'];
+  const dragon3 = form(
+    [...DRG_HEAD, '.OOBMMMMMMMBOO.', '.OBBSMMMMMSBBO.', '..OBBMMMMMBBO..', ...DRG_FEET],
+    { x: 13, y: 1, rows: ['...O..', '..OLO.', '.OLLLO', '..OLO.', '..OBO.', '.OBSO.', '.OBO..', 'OBSO..', 'OBO...', 'OO....'] },
+    {
+      sparkle: '#ffe9ff',
+      back: awake(function (g, a, t) {
+        const W = per(t, 1.4, 0.7) ? BWING_UP : BWING_DN;
+        this.pattern(W, a.right - 1, a.neck - 11, DRG, false);
+        this.pattern(mir(W), a.left - 9, a.neck - 11, DRG, false);
+      }),
+      mark: marks(horns(['..H', '.HH', 'HH.', 'Hh.', 'h..']), awake(function (g, a, t) {
+        this.pattern(['.R.', 'RWR', '.R.'], a.hx - 1, a.top + 1, DRG);
+        // 몇 초마다 불을 뿜는다
+        const p = (t % 5) / 1.2;
+        if (p < 1) {
+          const len = Math.round(Math.sin(p * Math.PI) * 11);
+          for (let i = 1; i <= len; i++) {
+            const h = Math.min(3, 1 + Math.floor(i / 3)), fl = (Math.floor(t * 12) + i) % 2;
+            for (let j = -h + fl; j <= h - fl; j++) this.px(a.left - 1 - i, a.my + 1 + j, Math.abs(j) < h - 1 ? (i < 4 ? FIRE.W : FIRE.Y) : FIRE.R, false);
+          }
+        } else snort.call(this, g, a, t);
+      }), orbit('#ffb35a', 3, 14, 1.5)),
+    },
+  );
+
   Object.assign(S.STAGE, {
     cat: cheese1, cat2: cheese2, cat3: cheese3,
     puff: puffBase, puff2, puff3,
@@ -583,6 +827,10 @@
     dash: dashBase, dash2, dash3,
     star: starBase, star2, star3,
     twin: twin1, twin2, twin3,
+    sprout: sprout1, sprout2, sprout3,
+    tide: tide1, tide2, tide3,
+    gear: gear1, gear2, gear3,
+    dragon: dragon1, dragon2, dragon3,
   });
   S.STAGES = Object.keys(S.STAGE);
 })(window);

@@ -14,6 +14,7 @@ const { BREEDS, START_BREED, breedOf } = require('./breeds');
 const TRIGGERS = [
   ['chars10k', (m) => m.chars >= 10_000],
   ['chars40k', (m) => m.chars >= 40_000],
+  ['chars60k', (m) => m.chars >= 60_000],
   ['chars100k', (m) => m.chars >= 100_000],
   ['chars250k', (m) => m.chars >= 250_000],
   ['correct10', (m) => m.correct >= 10],
@@ -21,15 +22,18 @@ const TRIGGERS = [
   ['correct120', (m) => m.correct >= 120],
   ['streak3', (m) => m.streak >= 3],
   ['streak7', (m) => m.streak >= 7],
+  ['streak14', (m) => m.streak >= 14],
   ['streak21', (m) => m.streak >= 21],
   ['links5', (m) => m.links >= 5],
   ['links20', (m) => m.links >= 20],
   ['links60', (m) => m.links >= 60],
   ['tidy3', (m) => m.tidy >= 3],
+  ['tidy8', (m) => m.tidy >= 8],
   ['tidy15', (m) => m.tidy >= 15],
   ['night', (m) => m.night],
   ['weekend', (m) => m.weekend],
   ['notes3', (m) => m.notesToday >= 3],
+  ['notes5', (m) => m.notesToday >= 5],
   ['allClear', (m) => m.allClear],
 ];
 const TRIGGER_CHANCE = 0.6; // 조건을 넘었을 때 만남 표가 생길 확률
@@ -37,6 +41,7 @@ const TICKET_DELAY_DAYS = 3; // 표가 생기고 0~3일 안에 만난다
 const DAILY_CHANCE = 0.03; // 아무 조건 없이 하루 한 번 굴려 표가 생길 확률
 const RARE_AFTER = 3; // 이만큼 모은 뒤에야 귀한 품종이 나온다
 const RARE_WEIGHT = 0.25;
+const MEET_WEIGHT = 6; // 만남 표를 만든 조건이 그 품종의 meet 에 있으면 이만큼 더 잘 나온다
 const STRAY_MS = 15 * 60_000;
 const isNight = (h) => h >= 22 || h < 2;
 const KEEP_DAYS = 400; // 날 기록은 이만큼만 (밤 · 쓴 날 세기용)
@@ -134,11 +139,13 @@ function rollDaily(s, today, rand = Math.random) {
 const ticketDue = (s, today) => s.tickets.some((t) => t.due <= today);
 
 // 아직 안 데려온 품종 하나 (귀한 품종은 RARE_AFTER 마리 모은 뒤로, 덜 나온다). 다 모았으면 null
-function pickBreed(s, rand = Math.random) {
+// today 를 주면 오늘 쓸 표(가장 먼저 만기된 것)의 조건을 보고 그 조건을 좋아하는 품종(meet)을 더 자주 고른다
+function pickBreed(s, rand = Math.random, today = null) {
   const rareOk = caught(s).length >= RARE_AFTER;
   const pool = BREEDS.filter((b) => !s.cats[b.key] && b.rarity !== 'start' && (b.rarity !== 'rare' || rareOk));
   if (!pool.length) return null;
-  const w = (b) => (b.rarity === 'rare' ? RARE_WEIGHT : 1);
+  const ticket = today == null ? null : s.tickets.find((t) => t.due <= today);
+  const w = (b) => (b.rarity === 'rare' ? RARE_WEIGHT : 1) * (ticket && (b.meet || []).includes(ticket.why) ? MEET_WEIGHT : 1);
   let r = rand() * pool.reduce((n, b) => n + w(b), 0);
   for (const b of pool) if ((r -= w(b)) < 0) return b.key;
   return pool[pool.length - 1].key;
