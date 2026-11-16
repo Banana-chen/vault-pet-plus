@@ -1263,6 +1263,9 @@
         return;
       }
       if (!g.flash) for (const A of AL) if (A.back) A.back.call(this, g, an, col, g.t);
+      // [Plus] 진화 형태가 몸 뒤에 그리는 것 (날개 · 다리 · 후광, kit/breeds.js 의 back)
+      const SBK = this.stageDef().back;
+      if (!g.flash && SBK) SBK.call(this, g, an, g.t);
       if (mo && mo.M.back) mo.M.back.call(this, g, an, mo.k, mo.at, col);
       if (m.tail && !p.noTail) this.drawTail(g);
       if (p.dangle != null && this.held) this.drawHangTail(g);
