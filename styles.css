@@ -223,6 +223,39 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
 .vpp-modal .vpp-wrong {
   color: var(--color-red);
 }
+.vpp-modal .vpp-title:not(:has(.vpp-bite)) {
+  font-weight: 700;
+}
+.vpp-modal .vpp-why {
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+.vpp-modal .vpp-excerpt {
+  font-size: var(--font-smaller);
+  margin-top: var(--size-4-1);
+}
+.vpp-modal .vpp-cand {
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  margin-bottom: var(--size-4-2);
+}
+.vpp-modal .vpp-cand .setting-item {
+  padding: var(--size-4-1) 0 0;
+  border: 0;
+}
+.vpp-modal .vpp-opts button {
+  display: block;
+  width: 100%;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+  margin: var(--size-4-1) 0;
+  padding: var(--size-4-2);
+}
+.vpp-modal .vpp-opts button.vpp-answer {
+  border: 1px solid var(--color-green);
+}
 .vpp-modal .vpp-tidy {
   margin-bottom: var(--size-4-4);
 }

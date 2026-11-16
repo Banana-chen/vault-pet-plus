@@ -15,143 +15,12 @@ const test = (name, fn) => tests.push({ name, fn });
 
 /* ── 제목 → 정답 ── */
 
-test('answersOf: 中文(English) 제목은 전체 · 中文 · English 를 다 정답으로', () => {
-  assert.deepStrictEqual(review.answersOf('CDP(Chrome DevTools Protocol)'), ['CDP(Chrome DevTools Protocol)', 'CDP', 'Chrome DevTools Protocol']);
-  assert.deepStrictEqual(review.answersOf('W3C（World Wide Web Consortium）'), ['W3C（World Wide Web Consortium）', 'W3C', 'World Wide Web Consortium']);
-  assert.deepStrictEqual(review.answersOf('CQRS (Command and Query Responsibility Segregation)'), ['CQRS (Command and Query Responsibility Segregation)', 'CQRS', 'Command and Query Responsibility Segregation']);
-  assert.deepStrictEqual(review.answersOf('Dead Letter Queue'), ['Dead Letter Queue']);
-  // 괄호가 가운데 있으면: 괄호 밖을 이은 이름 · 괄호 안 · 괄호 앞 이름
-  assert.deepStrictEqual(review.answersOf('共變數(Covariates)陷阱'), ['共變數(Covariates)陷阱', '共變數陷阱', 'Covariates', '共變數']);
-});
-
-test('answersOf: 콜론 · 대시로 나뉜 제목은 앞 · 뒤도 정답, 너무 짧은 앞 이름(분류)은 정답이 아니다', () => {
-  assert.deepStrictEqual(review.answersOf('非同步處理的消費模式：Push vs. Pull'), ['非同步處理的消費模式：Push vs. Pull', '非同步處理的消費模式', 'Push vs. Pull']);
-  assert.deepStrictEqual(review.answersOf('Kafka: Exactly Once'), ['Kafka: Exactly Once', 'Kafka', 'Exactly Once']);
-  assert.deepStrictEqual(review.answersOf('DDD-Single source of truth'), ['DDD-Single source of truth', 'Single source of truth']);
-  assert.deepStrictEqual(review.looseOf('DDD-Single source of truth'), ['DDD']);
-  // 낱말 안의 붙임표는 나누지 않는다
-  assert.deepStrictEqual(review.answersOf('e-mail 驗證'), ['e-mail 驗證']);
-  assert.deepStrictEqual(review.looseOf('CDP(Chrome DevTools Protocol)'), []);
-  // 대문자 합성어 · 시각은 나누지 않는다
-  for (const t of ['UTF-8', 'COVID-19 notes', 'API-first design', 'SQL-injection', '10:30 會議']) assert.deepStrictEqual(review.answersOf(t), [t], t);
-  // 세 글자 중국어 이름은 분류가 아니라 정답이다
-  assert.deepStrictEqual(review.answersOf('微服務：拆分原則'), ['微服務：拆分原則', '微服務', '拆分原則']);
-  // 콜론 앞에 괄호가 있어도 괄호 규칙은 그대로
-  assert.ok(review.answersOf('CDP(Chrome DevTools Protocol): intro').includes('CDP'));
-});
-
 test('findMentions: 나뉜 제목의 한쪽 이름으로는 링크를 권하지 않는다 (Kafka 마다 링크가 붙지 않게)', () => {
   const notes = [
     { path: 'Kafka: Exactly Once.md', title: 'Kafka: Exactly Once', text: '只處理一次' },
     { path: 'b.md', title: 'b', text: '我們用 Kafka 傳訊息' },
   ];
   assert.deepStrictEqual(tidy.findMentions(notes), []);
-});
-
-test('cardOf: 나뉜 제목의 소문자 보통 낱말은 가리지 않는다', () => {
-  const c = review.cardOf('DDD-Single source of truth', '每個資料只有一個 source，DDD 裡常提到');
-  assert.ok(c.question.includes('source'), c.question);
-});
-
-/* ── 카드 ── */
-
-test('cardOf: 나뉜 제목은 앞 · 뒤를 다 가리고, 짧은 분류 이름은 close 로 받는다', () => {
-  const c = review.cardOf('非同步處理的消費模式：Push vs. Pull', '非同步處理的消費模式分成 Push vs. Pull 兩種，Push 由 broker 推，Pull 由 consumer 拉');
-  assert.ok(!/非同步處理的消費模式|Push|Pull/.test(c.question), c.question);
-  assert.strictEqual(review.grade('push vs pull', c.answers, c.loose), 'right');
-  assert.strictEqual(review.grade('非同步處理的消費模式', c.answers, c.loose), 'right');
-  const d = review.cardOf('DDD-Single source of truth', '每個資料只有一個權威來源，DDD 裡常提到');
-  assert.strictEqual(review.grade('SSOT', d.answers, d.loose), 'right');
-  assert.strictEqual(review.grade('ddd', d.answers, d.loose), 'close');
-  assert.ok(!d.question.includes('DDD'), d.question);
-});
-
-test('cardOf: 첫 단락이 문제, 그 안의 정답 글자도 가린다', () => {
-  const c = review.cardOf('Juggler協定(Juggler Protocol)', 'Juggler是playwright團隊開發的協定\n它是 CDP 的替代\n\n第二段');
-  assert.ok(c);
-  assert.ok(!/Juggler/i.test(c.question), c.question);
-  assert.ok(c.question.includes(review.BLANK));
-  assert.ok(c.question.includes('它是 CDP 的替代'), '첫 단락은 빈 줄까지');
-  assert.ok(!c.question.includes('第二段'));
-});
-
-test('cardOf: 괄호가 가운데 있는 제목도 앞 이름까지 가린다', () => {
-  const c = review.cardOf('共變數(Covariates)陷阱', '坪數是隱藏在背後的共變數，讓人誤會因果');
-  assert.ok(!c.question.includes('共變數'), c.question);
-  assert.strictEqual(review.grade('covariates', c.answers), 'right');
-});
-
-test('cardOf: 여러 낱말 영어 제목의 머리글자도 가린다 (DLQ)', () => {
-  const c = review.cardOf('Dead Letter Queue', '失敗任務的回收桶，設置了 DLQ 就能重試');
-  assert.ok(!c.question.includes('DLQ'), c.question);
-  assert.strictEqual(review.grade('dlq', c.answers), 'right', '머리글자로 답해도 맞다');
-  const fe = review.cardOf('Feature Envy', '常見的 code smell，safe 的寫法是把方法搬回資料所在處');
-  assert.ok(fe.question.includes('safe'), '두 글자 머리글자는 가리지 않고, 낱말 안은 가리지 않는다');
-});
-
-test('cardOf: frontmatter · 제목줄은 건너뛰고, 첫 단락이 없거나 너무 짧으면 카드가 아니다', () => {
-  const c = review.cardOf('自噬作用', '---\ntags: [bio]\n---\n# 自噬作用\n\n細胞分解自身成分的過程');
-  assert.ok(c && c.question.startsWith('細胞分解'));
-  assert.strictEqual(review.cardOf('空白', ''), null);
-  assert.strictEqual(review.cardOf('空白', '# 只有標題\n'), null);
-  assert.strictEqual(review.cardOf('ABC', 'ABC'), null, '가리고 나면 남는 게 없다');
-});
-
-/* ── 형광펜 카드 ── */
-
-test('cardKeys: 제목 카드 하나 + 형광펜마다 하나 (코드 안은 빼고, 같은 말은 한 번)', () => {
-  const text = '甲是 ==熔斷器== 的一種\n\n再說一次 ==熔斷器== 和 ==退避==\n```\n==假的==\n```';
-  assert.deepStrictEqual(review.cardKeys('a.md', text), ['a.md', 'a.md\n==熔斷器', 'a.md\n==退避']);
-  assert.deepStrictEqual(review.parseKey('a.md\n==退避'), { path: 'a.md', highlight: '退避' });
-  assert.deepStrictEqual(review.parseKey('a.md'), { path: 'a.md', highlight: null });
-});
-
-test('clozeOf: 형광펜이 있는 단락이 문제, 그 말만 가리고 다른 형광펜 표시는 벗긴다', () => {
-  const c = review.clozeOf('前言\n\n甲是 ==熔斷器== 的一種，搭配 ==退避== 使用', '熔斷器');
-  assert.deepStrictEqual(c.answers, ['熔斷器']);
-  assert.strictEqual(c.question, `甲是 ${review.BLANK} 的一種，搭配 退避 使用`);
-  assert.strictEqual(review.clozeOf('沒有這個', '熔斷器'), null);
-});
-
-test('bites: 빈칸마다 먹힌 원래 글자를 차례로 (답을 보여 줄 때 그 자리에 돌려놓는다)', () => {
-  const c = review.cardOf('CDP(Chrome DevTools Protocol)', 'cdp 是 Chrome DevTools Protocol 的縮寫，透過 CDP 控制瀏覽器');
-  assert.deepStrictEqual(c.bites, ['cdp', 'Chrome DevTools Protocol', 'CDP']);
-  assert.strictEqual(c.kind, 'title', '제목 카드는 먹힌 제목 줄을 그린다');
-  assert.strictEqual(c.question.split(review.BLANK).length - 1, c.bites.length);
-  const z = review.clozeOf('==退避== 要配 ==退避== 才行', '退避');
-  assert.deepStrictEqual(z.bites, ['退避', '退避']);
-});
-
-test('renameInDeck: 형광펜 카드도 같이 옮긴다', () => {
-  const deck = { 'a.md': { b: 1, due: 3 }, 'a.md\n==x': { b: 2, due: 4 }, 'ab.md': { b: 0, due: 1 } };
-  assert.deepStrictEqual(review.renameInDeck(deck, 'a.md', 'z.md'), { 'z.md': { b: 1, due: 3 }, 'z.md\n==x': { b: 2, due: 4 }, 'ab.md': { b: 0, due: 1 } });
-  const inFolder = { 'f/a.md': { b: 3, due: 9 }, 'f/a.md\n==x': { b: 1, due: 2 }, 'fx/b.md': { b: 0, due: 1 } };
-  assert.deepStrictEqual(review.renameInDeck(inFolder, 'f', 'g'), { 'g/a.md': { b: 3, due: 9 }, 'g/a.md\n==x': { b: 1, due: 2 }, 'fx/b.md': { b: 0, due: 1 } }, '폴더 이름이 바뀌어도 진행도는 그대로');
-});
-
-/* ── 채점 ── */
-
-test('grade: 대소문자 · 공백 · 문장부호는 무시, 한두 글자 차이는 close', () => {
-  const a = review.answersOf('CDP(Chrome DevTools Protocol)');
-  assert.strictEqual(review.grade('cdp', a), 'right');
-  assert.strictEqual(review.grade(' chrome devtools-protocol ', a), 'right');
-  assert.strictEqual(review.grade('Chrome DevTool Protocol', a), 'close');
-  assert.strictEqual(review.grade('WebDriver', a), 'wrong');
-  assert.strictEqual(review.grade('', a), 'wrong');
-  // 簡繁 한 글자 차이는 close 로 잡힌다
-  assert.strictEqual(review.grade('自噬作用', review.answersOf('自噬作用')), 'right');
-  assert.strictEqual(review.grade('不可变架构', review.answersOf('不可變架構(Immutable infrastrcture)')), 'close');
-});
-
-/* ── 상자 ── */
-
-test('schedule: 맞히면 다음 상자, 틀리면 1번 상자로, 힌트 쓰면 그 자리', () => {
-  const today = 100;
-  assert.deepStrictEqual(review.schedule({ b: 0, due: today }, 'right', today, false), { b: 1, due: today + 2 });
-  assert.deepStrictEqual(review.schedule({ b: 3, due: today }, 'right', today, false), { b: 4, due: today + 16 });
-  assert.deepStrictEqual(review.schedule({ b: 4, due: today }, 'right', today, false), { b: 4, due: today + 16 }, '마지막 상자에 머문다');
-  assert.deepStrictEqual(review.schedule({ b: 3, due: today }, 'wrong', today, false), { b: 0, due: today + 1 });
-  assert.deepStrictEqual(review.schedule({ b: 2, due: today }, 'right', today, true), { b: 2, due: today + 4 });
 });
 
 test('syncDeck: 처음엔 전부 오늘, 나중에 생긴 노트는 내일부터, 사라진 노트는 뺀다', () => {
@@ -173,12 +42,6 @@ test('dueToday: 오늘까지인 카드만, 오래 밀린 것부터, 하루 10장
   assert.strictEqual(review.dueToday(deck, 7, 8).length, 2);
 });
 
-test('xpFor: 맞히면 15, 힌트 쓰고 맞히면 반, 틀리면 0', () => {
-  assert.strictEqual(review.xpFor('right', false), 15);
-  assert.strictEqual(review.xpFor('right', true), 7);
-  assert.strictEqual(review.xpFor('wrong', false), 0);
-});
-
 test('dayNum: 같은 날은 같은 수, 다음 날은 +1 (현지 시각 기준)', () => {
   const a = new Date(2026, 9, 19, 0, 5);
   const b = new Date(2026, 9, 19, 23, 55);
@@ -195,6 +58,76 @@ const NOTES = [
   { path: 'W3C（World Wide Web Consortium）.md', title: 'W3C（World Wide Web Consortium）', text: '網頁標準組織' },
   { path: 'x.md', title: 'x', text: '```\nCDP in code\n```\n已連 [[CDP(Chrome DevTools Protocol)|CDP]] 了，`CDP` 也不算，CDPX 也不算' },
 ];
+
+test('schedule: 다시 볼 때마다 다음 상자로, 마지막 상자에서 멈춘다', () => {
+  assert.deepStrictEqual(review.schedule({ b: 0, due: 10 }, 10), { b: 1, due: 10 + review.BOX_DAYS[1] });
+  const last = review.BOX_DAYS.length - 1;
+  assert.deepStrictEqual(review.schedule({ b: last, due: 10 }, 10), { b: last, due: 10 + review.BOX_DAYS[last] });
+});
+
+test('renameInDeck: 노트 · 폴더 이름이 바뀌면 카드를 옮긴다', () => {
+  const deck = { 'a/x.md': { b: 1, due: 3 }, 'b.md': { b: 0, due: 1 } };
+  assert.deepStrictEqual(Object.keys(review.renameInDeck(deck, 'a', 'c')).sort(), ['b.md', 'c/x.md']);
+  assert.deepStrictEqual(Object.keys(review.renameInDeck(deck, 'b.md', 'd.md')).sort(), ['a/x.md', 'd.md']);
+});
+
+/* ── 카드 잇기 ── */
+const connect = require(path.join(src, 'core/connect'));
+const N = (title, text, tags = []) => ({ path: title + '.md', title, text, tags });
+const BOX = [
+  N('Kafka', 'Kafka 是分散式訊息佇列，消費者用 Pull 模式拉訊息。', ['#mq']),
+  N('Pull 模式', '消費者自己決定何時取資料。', ['#mq']),
+  N('背壓', '下游處理不過來時，往上游回報放慢速度。', ['#flow']),
+  N('盧曼', '卡片盒筆記法的發明者。', []),
+  N('事件溯源', '把狀態的每次改變存成事件。[[Kafka]] 常拿來當事件日誌。', []),
+  N('貓', '貓是一種動物。', []),
+];
+const NB = connect.neighborsOf({ '事件溯源.md': { 'Kafka.md': 1 }, 'Kafka.md': { 'Kafka.md': 2 } });
+
+test('neighborsOf: 링크는 양쪽 다 이웃, 자기 자신은 뺀다', () => {
+  assert.deepStrictEqual([...NB['Kafka.md']], ['事件溯源.md']);
+  assert.deepStrictEqual([...NB['事件溯源.md']], ['Kafka.md']);
+});
+
+test('candidates: 이미 이어진 카드 · 자기 자신은 빼고, 서로 언급 > 같은 태그, 우연한 한 장도 넣는다', () => {
+  const list = connect.candidates(BOX[0], BOX, NB, () => 0.3, 4);
+  const paths = list.map((c) => c.path);
+  assert.ok(!paths.includes('Kafka.md') && !paths.includes('事件溯源.md'), paths.join());
+  assert.strictEqual(list[0].path, 'Pull 模式.md');
+  assert.strictEqual(list[0].why, 'mention');
+  assert.ok(list.some((c) => c.why === 'random'), '우연히 뽑은 카드');
+  assert.ok(list.length <= 4 && new Set(paths).size === paths.length);
+  // 같은 이웃(둘 다 Kafka 와 이어짐) · 같은 태그도 이유가 된다
+  const nb2 = connect.neighborsOf({ '事件溯源.md': { 'Kafka.md': 1 }, '背壓.md': { 'Kafka.md': 1 } });
+  const viaNb = connect.candidates(BOX[2], BOX, nb2, () => 0.3, 4).find((c) => c.path === '事件溯源.md');
+  assert.strictEqual(viaNb.why, 'neighbor');
+  assert.strictEqual(viaNb.via, 'Kafka');
+  const tagged = connect.candidates(BOX[1], [BOX[1], N('RabbitMQ', '另一種訊息佇列。', ['#mq'])], {}, () => 0.3, 4);
+  assert.deepStrictEqual([tagged[0].why, tagged[0].via], ['tag', '#mq']);
+  // 다시 뽑기: 이미 본 후보는 뺀다
+  const more = connect.candidates(BOX[0], BOX, NB, () => 0.3, 4, paths);
+  assert.ok(more.every((c) => !paths.includes(c.path)));
+});
+
+test('neighborQuiz: 이웃이 있는 카드만 문제가 되고, 정답은 실제 이웃 하나 · 나머지 보기는 이웃이 아니다', () => {
+  const quiz = connect.neighborQuiz(BOX, NB, Math.random, 3);
+  assert.strictEqual(quiz.length, 2, '이웃이 있는 카드는 둘뿐');
+  for (const q of quiz) {
+    assert.strictEqual(q.options.length, 4);
+    assert.ok(NB[q.path].has(q.answer));
+    assert.strictEqual(q.options.filter((o) => NB[q.path].has(o.path)).length, 1);
+    assert.ok(q.options.every((o) => o.path !== q.path));
+  }
+  assert.deepStrictEqual(connect.neighborQuiz(BOX.slice(0, 3), NB), [], '보기가 모자라면 문제를 내지 않는다');
+});
+
+test('appendLink: 노트 끝에 링크와 이유 한 줄, 이미 이어져 있으면 null, 링크 목록 뒤에는 바로 붙인다', () => {
+  assert.strictEqual(connect.appendLink('본문\n', '背壓', '都在談流量控制'), '본문\n\n- [[背壓]]：都在談流量控制\n');
+  assert.strictEqual(connect.appendLink('본문\n\n- [[背壓]]：a\n', 'Kafka', ''), '본문\n\n- [[背壓]]：a\n- [[Kafka]]\n');
+  assert.strictEqual(connect.appendLink('看 [[背壓|這張]]', '背壓', 'x'), null);
+  assert.strictEqual(connect.appendLink('看 [[背壓]]', '背壓'), null);
+  assert.strictEqual(connect.appendLink('', 'Kafka', ' 多行\n理由 '), '- [[Kafka]]：多行 理由\n');
+});
 
 test('findMentions: 다른 노트 제목이 나오면 노트마다 대상마다 처음 한 곳만', () => {
   const m = tidy.findMentions(NOTES);

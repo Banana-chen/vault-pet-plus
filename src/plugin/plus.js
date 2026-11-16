@@ -1,23 +1,26 @@
 'use strict';
 /*
- * [Plus] 복습 · 링크 정리 · 원래 Vault Pet 기록 가져오기.
- * 로직은 core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
- * 노트를 고치는 건 applyTidy 하나뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
+ * [Plus] 카드 잇기(옛 카드 다시 보기) · 링크 정리 · 원래 Vault Pet 기록 가져오기.
+ * 로직은 core/connect.js · core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
+ * 노트를 고치는 건 applyTidy · connect 둘뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
  */
-const { TFile } = require('obsidian');
-const { cardOf, cardKeys, parseKey, clozeOf, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
+const obsidian = require('obsidian');
+const { TFile } = obsidian;
+const { schedule, syncDeck, renameInDeck, dueToday, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
+const { excerptOf, neighborsOf, candidates, neighborQuiz, appendLink } = require('../core/connect');
 const { findMentions, applyLink } = require('../core/tidy');
-const { FOODS } = require('../core/shop');
 const { loadSafe } = require('./safedata');
 
 const TIDY_XP = 20;
+const CONNECT_XP = 20; // 옛 카드를 다른 카드와 이었을 때
 const ORIGINAL_ID = 'vault-pet';
 // 할 카드 수 · 정리할 곳 수를 다시 세는 간격 (분). 노트를 전부 읽으니 자주 하지 않는다
 const RECOUNT_MIN = 10;
 // 사람이 앞에 있다고 볼 만큼 최근에 만졌고, 지금 막 치는 중은 아닐 때만 말을 건다
 const NUDGE_IDLE_S = [20, 600];
 
-const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0 };
+// correct = 이은 카드 수 + 길들이기에서 맞힌 수 (진화 조건 '이은 카드'). paid = 이미 경험치를 준 연결
+const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0, paid: {} };
 const TIDY_DEFAULT = { done: 0, open: 0, paid: {}, nudged: 0 };
 
 class Plus {
@@ -56,7 +59,9 @@ class Plus {
     const out = [];
     for (const f of this.files()) {
       try {
-        out.push({ path: f.path, title: f.basename, text: await this.plugin.app.vault.cachedRead(f) });
+        const cache = this.plugin.app.metadataCache.getFileCache(f);
+        const tags = cache && obsidian.getAllTags ? obsidian.getAllTags(cache) || [] : [];
+        out.push({ path: f.path, title: f.basename, text: await this.plugin.app.vault.cachedRead(f), tags: [...new Set(tags)] });
       } catch {
         // 못 읽는 노트는 건너뛴다
       }
@@ -64,16 +69,20 @@ class Plus {
     return out;
   }
 
-  /* ── 복습 ── */
+  /* ── 카드 잇기 ── */
 
-  // 덱을 지금 노트에 맞춘다 (제목 카드 + 형광펜 카드). 읽은 글은 돌려줘서 다시 읽지 않게
+  graph() {
+    return neighborsOf(this.plugin.app.metadataCache.resolvedLinks);
+  }
+
+  // 덱을 지금 노트에 맞춘다 (노트 하나 = 카드 하나). 읽은 글은 돌려줘서 다시 읽지 않게
   async syncDeck() {
     const notes = await this.notes();
     const r = this.review();
-    const deck = syncDeck(r.deck, notes.flatMap((n) => cardKeys(n.path, n.text)), dayNum(), !r.seeded);
+    const deck = syncDeck(r.deck, notes.map((n) => n.path), dayNum(), !r.seeded);
     const same = r.seeded && Object.keys(deck).length === Object.keys(r.deck).length && Object.keys(deck).every((k) => r.deck[k]);
     if (!same) this.setReview({ deck, seeded: true });
-    return new Map(notes.map((n) => [n.path, n]));
+    return notes;
   }
 
   rename(from, to) {
@@ -85,54 +94,68 @@ class Plus {
     return t.day === dayNum() ? t.n : 0;
   }
 
-  // 오늘 낼 카드. 첫 단락이 없는 노트는 문제가 안 되니 건너뛰고 다음 카드를 채운다
+  // 오늘 다시 볼 카드: 글 · 지금 이어진 카드 수 · 이을 만한 카드. more(skip) 는 다른 후보를 다시 뽑는다
   async dueCards() {
     const notes = await this.syncDeck();
-    const room = DAILY_CAP - this.doneToday();
-    const out = [];
-    for (const key of dueToday(this.review().deck, dayNum(), 0, Infinity)) {
-      if (out.length >= room) break;
-      const { path, highlight } = parseKey(key);
-      const note = notes.get(path);
-      if (!note) continue;
-      const card = highlight === null ? cardOf(note.title, note.text) : clozeOf(note.text, highlight);
-      if (card) out.push({ key, path, ...card });
-    }
+    const by = new Map(notes.map((n) => [n.path, n]));
+    const nb = this.graph();
+    const out = dueToday(this.review().deck, dayNum(), this.doneToday())
+      .map((path) => by.get(path))
+      .filter(Boolean)
+      .map((note) => ({
+        key: note.path,
+        path: note.path,
+        title: note.title,
+        question: excerptOf(note.text),
+        linked: (nb[note.path] || new Set()).size,
+        candidates: candidates(note, notes, nb),
+        more: (skip) => candidates(note, notes, nb, Math.random, 4, skip),
+      }));
     this.setReview({ due: out.length });
     return out;
   }
 
-  // result: 'right' | 'wrong'. 힌트를 쓰고 맞힌 건 경험치 반 · 상자 그대로 · 진화용 '맞힌 수'에는 안 센다
-  answer(key, result, hinted) {
+  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 같은 연결은 한 번만 경험치 · 이은 카드 수
+  async connect(path, target, reason) {
+    const f = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (!(f instanceof TFile)) return null;
+    let ok = false;
+    await this.plugin.app.vault.process(f, (text) => {
+      const next = appendLink(text, target, reason);
+      ok = next !== null;
+      return ok ? next : text;
+    });
+    if (!ok) return null;
+    const r = this.review();
+    const key = `${path}\n${target}`;
+    if (r.paid[key]) return 0;
+    this.setReview({ paid: { ...r.paid, [key]: Date.now() }, correct: r.correct + 1 });
+    if (this.plugin.collect) this.plugin.collect.addCorrect();
+    this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
+    this.host.recomputeGrowth();
+    return CONNECT_XP;
+  }
+
+  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1
+  visit(key) {
     const r = this.review();
     const today = dayNum();
-    const card = r.deck[key] || { b: 0, due: today };
     this.setReview({
-      deck: { ...r.deck, [key]: schedule(card, result, today, hinted) },
+      deck: { ...r.deck, [key]: schedule(r.deck[key] || { b: 0, due: today }, today) },
       done: r.done + 1,
-      correct: r.correct + (result === 'right' && !hinted ? 1 : 0),
       today: { day: today, n: this.doneToday() + 1 },
       days: r.days.includes(today) ? r.days : [...r.days, today].slice(-60),
       due: Math.max(0, r.due - 1),
     });
-    if (result === 'right' && !hinted && this.plugin.collect) this.plugin.collect.addCorrect();
-    const xp = xpFor(result, hinted);
-    if (xp) this.host.gamify.grant(xp, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
-    return xp;
   }
 
-  // 길들이기 문제: 제목 카드 n 장을 아무거나 (상자 · 오늘 할당량과 상관없이)
-  async randomCards(n) {
-    const pool = (await this.notes()).map((note) => ({ note, card: cardOf(note.title, note.text) })).filter((x) => x.card);
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    return pool.slice(0, n).map(({ note, card }) => ({ key: note.path, path: note.path, ...card }));
+  // 길들이기 문제: 이웃이 있는 카드 n 장 (상자 · 오늘 할당량과 상관없이)
+  async neighborCards(n) {
+    return neighborQuiz(await this.notes(), this.graph(), Math.random, n);
   }
 
-  // 길들이기 문제를 풀었다: 경험치와 맞힌 수는 주지만 상자는 건드리지 않는다
+  // 길들이기 문제를 풀었다: 맞히면 경험치와 '이은 카드' 수
   practice(result) {
     if (result !== 'right') return 0;
     const r = this.review();
@@ -143,24 +166,8 @@ class Plus {
     return REVIEW_XP;
   }
 
-  finish(right, total) {
-    if (total) this.host.bubble(this.host.T.line('reviewDone', { right, total }), 'quest');
-  }
-
-  snacks() {
-    const pantry = this.plugin.state.get('pantry') || {};
-    return FOODS.filter((x) => x.group === 'snack' && pantry[x.key] > 0).sort((a, b) => a.price - b.price);
-  }
-
-  snackCount() {
-    const pantry = this.plugin.state.get('pantry') || {};
-    return this.snacks().reduce((n, x) => n + pantry[x.key], 0);
-  }
-
-  // 냄새 맡기: 제일 싼 간식 하나를 고양이에게 준다 (바닥에 떨어진 걸 먹으러 간다). 줬으면 true
-  hint() {
-    const [snack] = this.snacks();
-    return !!snack && this.host.giveFood(snack.key);
+  finish(links, total) {
+    if (total) this.host.bubble(this.host.T.line('reviewDone', { right: links, total }), 'quest');
   }
 
   /* ── 링크 정리 ── */

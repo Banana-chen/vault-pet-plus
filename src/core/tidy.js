@@ -71,4 +71,4 @@ function applyLink(text, m) {
   return text.slice(0, m.index) + linkText(m.target, m.alias) + text.slice(m.index + m.alias.length);
 }
 
-module.exports = { findMentions, applyLink };
+module.exports = { findMentions, applyLink, aliasOk };

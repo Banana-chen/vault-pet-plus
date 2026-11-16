@@ -1093,6 +1093,95 @@ module.exports = {
 
 };
 
+__defs["core/connect"] = function (module, exports, require) {
+'use strict';
+// [Plus] 카드 잇기 (루만의 메모 상자식 복습): 옛 카드를 다시 보고 이을 만한 카드를 권한다. 외우기 시험이 아니다.
+//  - candidates: 이 카드와 이을 만한 카드 (서로 언급 · 같은 태그 · 같은 이웃 + 우연히 뽑은 한 장)
+//  - neighborQuiz: 길들이기 문제. 이 카드와 정말 이어진 카드를 보기 넷 중에 고른다 (정답은 볼트의 실제 링크)
+//  - appendLink: 노트 끝에 '- [[대상]]：이유' 한 줄. 사용자가 버튼을 눌렀을 때만 쓴다 (plugin/plus.js)
+const { namesOf, firstParagraph } = require('./review');
+const { aliasOk } = require('./tidy');
+
+const EXCERPT = 120;
+const excerptOf = (text) => firstParagraph(text).replace(/\s+/g, ' ').slice(0, EXCERPT);
+
+// resolvedLinks { src: { dst: n } } → 방향 없는 이웃 표 { path: Set }
+function neighborsOf(resolved) {
+  const nb = {};
+  const add = (a, b) => (nb[a] || (nb[a] = new Set())).add(b);
+  for (const [src, targets] of Object.entries(resolved || {})) {
+    for (const dst of Object.keys(targets)) {
+      if (dst === src) continue;
+      add(src, dst);
+      add(dst, src);
+    }
+  }
+  return nb;
+}
+
+function shuffle(list, rand) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const mentions = (a, b) => namesOf(b.title).filter(aliasOk).some((alias) => a.text.toLowerCase().includes(alias.toLowerCase()));
+
+// notes = [{ path, title, text, tags }] → [{ path, title, excerpt, why, via }] (why: mention | tag | neighbor | random)
+// 이미 이어진 카드는 빼고, 점수 높은 n-1 장 + 우연히 뽑은 한 장 (뜻밖의 연결도 메모 상자의 맛)
+function candidates(note, notes, nb, rand = Math.random, n = 4, skip = []) {
+  const mine = nb[note.path] || new Set();
+  const titles = new Map(notes.map((x) => [x.path, x.title]));
+  const scored = [];
+  const rest = [];
+  for (const o of notes) {
+    if (o.path === note.path || mine.has(o.path) || skip.includes(o.path) || note.text.includes(`[[${o.title}`)) continue;
+    const tag = (note.tags || []).find((t) => (o.tags || []).includes(t));
+    const shared = [...mine].find((p) => (nb[o.path] || new Set()).has(p));
+    let score = 0, why = null, via = '';
+    if (shared) { score += 2; why = 'neighbor'; via = titles.get(shared) || ''; }
+    if (tag) { score += 2; why = 'tag'; via = tag; }
+    if (mentions(note, o) || mentions(o, note)) { score += 5; why = 'mention'; via = ''; }
+    const c = { path: o.path, title: o.title, excerpt: excerptOf(o.text), why: why || 'random', via };
+    (score ? scored : rest).push({ score: score + rand() * 0.5, c });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const lucky = shuffle(rest, rand).slice(0, Math.max(1, n - scored.length));
+  return [...scored.slice(0, n - 1), ...lucky].slice(0, n).map((x) => x.c);
+}
+
+// 이웃이 있는 카드 n 장으로 문제를 낸다: { path, title, question, options: [{ path, title }], answer }
+function neighborQuiz(notes, nb, rand = Math.random, n = 3, size = 4) {
+  const by = new Map(notes.map((x) => [x.path, x]));
+  const out = [];
+  for (const note of shuffle(notes, rand)) {
+    if (out.length >= n) break;
+    const near = [...(nb[note.path] || [])].filter((p) => by.has(p));
+    const far = notes.filter((o) => o.path !== note.path && !near.includes(o.path));
+    if (!near.length || far.length < size - 1) continue;
+    const answer = near[Math.floor(rand() * near.length)];
+    const options = shuffle([by.get(answer), ...shuffle(far, rand).slice(0, size - 1)], rand).map((o) => ({ path: o.path, title: o.title }));
+    out.push({ path: note.path, title: note.title, question: excerptOf(note.text), options, answer });
+  }
+  return out;
+}
+
+// 노트 끝에 링크 한 줄. 이미 그 카드로 가는 링크가 있으면 null. 끝이 링크 목록이면 바로 이어 붙인다
+function appendLink(text, target, reason = '') {
+  if (text.includes(`[[${target}]]`) || text.includes(`[[${target}|`)) return null;
+  const body = text.replace(/\s+$/, '');
+  const why = String(reason).replace(/\s+/g, ' ').trim();
+  const last = body.split('\n').pop() || '';
+  return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}- [[${target}]]${why ? `：${why}` : ''}\n`;
+}
+
+module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, appendLink };
+
+};
+
 __defs["core/friends"] = function (module, exports, require) {
 // 동네 친구들 (7차, 2026-09-23). 예전 '동네 고양이 손님'을 넓혀 여러 동물이 놀러 온다.
 //
@@ -2504,18 +2593,14 @@ module.exports = { recap, periodOf, longestStreak, KINDS, CARD_CELLS, CARD_THEME
 
 __defs["core/review"] = function (module, exports, require) {
 'use strict';
-// [Plus] 복습 카드: 노트 제목이 정답, 첫 단락이 문제 (고양이가 제목 글자를 먹어 버렸다).
-// 형광펜(==말==) 카드도 있다: 그 말이 있는 단락에서 그 말을 먹었다.
-// 카드 내용은 따로 저장하지 않는다. 문제는 낼 때마다 지금 노트에서 만들고, 저장하는 건 상자 번호와 다음 날짜뿐이다.
+// [Plus] 다시 볼 카드의 일정 (노트 하나 = 카드 하나). 무엇을 하는지는 core/connect.js (카드 잇기).
+// 저장하는 건 상자 번호와 다음 날짜뿐이다. 2026-11 까지는 제목 · 형광펜을 가리고 맞히는 외우기 시험이었다
 
-const BLANK = '＿＿';
-// 상자 0~4 의 간격 (일). 맞히면 다음 상자, 틀리면 상자 0
+// 상자 0~4 의 간격 (일). 다시 볼 때마다 다음 상자
 const BOX_DAYS = [1, 2, 4, 8, 16];
 const DAILY_CAP = 10;
-const REVIEW_XP = 15;
+const REVIEW_XP = 15; // 길들이기 문제를 맞혔을 때
 const QUESTION_MAX = 300;
-
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // 'CDP(Chrome DevTools Protocol)' → [전체, 'CDP', 'Chrome DevTools Protocol']. 괄호는 전각도 받는다.
 // 괄호가 가운데 있으면 ('共變數(Covariates)陷阱') 괄호 밖을 이은 이름 · 괄호 안 · 괄호 앞 이름
@@ -2525,26 +2610,6 @@ function namesOf(title) {
   const m = t.match(/^(.+?)\s*[(（]([^()（）]+)[)）]\s*(.*)$/);
   const list = m ? [t, (m[1] + m[3]).trim(), m[2].trim(), m[3] ? m[1].trim() : ''] : [t];
   return [...new Set(list.filter(Boolean))];
-}
-
-// '非同步處理的消費模式：Push vs. Pull' · 'DDD-Single source of truth' → [앞, 뒤].
-// 시각('10:30')과 붙임표 합성어('e-mail' · 'UTF-8' · 'API-first')는 나누지 않는다: 붙임표는 '약어-대문자로 시작하는 말'만
-function partsOf(title) {
-  const t = String(title).trim();
-  const m = t.match(/^(.+?)\s*(?:[：—–]|(?<!\d):(?!\d)|\s-\s)\s*(.+)$/) || t.match(/^([A-Z0-9]{2,6})-([A-Z][a-z].*)$/);
-  return m ? [m[1].trim(), m[2].trim()] : null;
-}
-
-// 세 글자 이하 영문 약어 앞 이름은 분류일 뿐이라 ('DDD') 정답이 아니라 close 로 받는다 (中文 세 글자는 온전한 이름)
-const isLoose = (part) => /^[A-Za-z0-9]{1,3}$/.test(part);
-const looseOf = (title) => (partsOf(title) || []).filter(isLoose);
-
-// 복습 정답: 괄호 이름들 + 나뉜 제목의 앞 · 뒤 (각각 괄호 규칙도 그대로)
-function answersOf(title) {
-  const t = String(title).trim();
-  const parts = partsOf(t);
-  if (!parts) return namesOf(t);
-  return [...new Set([t, ...parts.filter((p) => !isLoose(p)).flatMap(namesOf)])];
 }
 
 // 첫 단락: frontmatter 와 앞쪽 제목줄 · 빈 줄을 건너뛰고 다음 빈 줄까지
@@ -2560,98 +2625,9 @@ function firstParagraph(text) {
   return out.join('\n').slice(0, QUESTION_MAX);
 }
 
-// 문제에서 가릴 말: 정답들과, 中文 쪽 이름 안의 영어 낱말 ('Juggler協定' 의 'Juggler'),
-// 여러 낱말 영어 이름의 머리글자 ('Dead Letter Queue' 의 'DLQ')
-const initialsOf = (answers) =>
-  answers
-    .filter((a) => /^[A-Za-z][A-Za-z ]+$/.test(a) && a.trim().split(/\s+/).length >= 2)
-    .map((a) => a.trim().split(/\s+/).map((w) => w[0].toUpperCase()).join(''))
-    .filter((x) => x.length >= 3);
-
-// 나뉜 제목은 앞 · 뒤 안의 대문자로 시작하는 영어 낱말도 가린다 ('Push vs. Pull' 의 'Push' · 'Pull').
-// 소문자 보통 낱말('source' · 'truth')은 본문 여기저기를 다 지워 버리니 둔다
-function maskTerms(title, answers, loose) {
-  const parts = partsOf(title);
-  const latin = parts
-    ? parts.flatMap((s) => s.match(/\b[A-Z][A-Za-z0-9]{2,}/g) || [])
-    : (answers[1] || '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) || [];
-  return [...new Set([...answers, ...loose, ...latin])].sort((a, b) => b.length - a.length);
-}
-
-const normalize = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
-
-// 정답에는 머리글자도 넣는다 (DLQ 로 답해도 맞다). 머리글자는 문제에서도 가려진다
-function cardOf(title, text) {
-  const named = answersOf(title);
-  const answers = [...new Set([...named, ...initialsOf(named)])];
-  const loose = looseOf(title);
-  // 영어로 시작 · 끝나는 말은 낱말 안쪽(safe 속 'fe')을 가리지 않게 경계를 본다.
-  // 한 번에 훑어서(긴 말 먼저) 빈칸마다 먹힌 글자(bites)를 순서대로 남긴다
-  const edge = (term) => `${/^[A-Za-z0-9]/.test(term) ? '(?<![A-Za-z0-9])' : ''}${escapeRe(term)}${/[A-Za-z0-9]$/.test(term) ? '(?![A-Za-z0-9])' : ''}`;
-  const bites = [];
-  const eat = new RegExp(maskTerms(title, answers, loose).map(edge).join('|'), 'gi');
-  const question = firstParagraph(text).replace(eat, (m) => (bites.push(m), BLANK));
-  if (normalize(question.split(BLANK).join('')).length < 4) return null;
-  return { kind: 'title', answers, loose, question, bites };
-}
-
-/* ── 형광펜 카드 ── */
-
-// 덱 열쇠: 제목 카드는 노트 경로, 형광펜 카드는 '경로\n==말'
-const HL_SEP = '\n==';
-const HIGHLIGHT = /==([^=\n]+)==/g;
-const stripCode = (text) => String(text).replace(/```[\s\S]*?(```|$)/g, '').replace(/`[^`\n]*`/g, '');
-
-function highlightsOf(text) {
-  return [...new Set([...stripCode(text).matchAll(HIGHLIGHT)].map((m) => m[1].trim()).filter(Boolean))];
-}
-
-const cardKeys = (path, text) => [path, ...highlightsOf(text).map((h) => path + HL_SEP + h)];
-
-function parseKey(key) {
-  const i = key.indexOf(HL_SEP);
-  return i < 0 ? { path: key, highlight: null } : { path: key.slice(0, i), highlight: key.slice(i + HL_SEP.length) };
-}
-
-function clozeOf(text, highlight) {
-  const para = stripCode(text)
-    .split(/\n\s*\n/)
-    .find((p) => p.includes(`==${highlight}==`));
-  if (!para) return null;
-  const question = para
-    .trim()
-    .split(`==${highlight}==`)
-    .join(BLANK)
-    .replace(HIGHLIGHT, '$1')
-    .slice(0, QUESTION_MAX);
-  return { answers: [highlight], question, bites: Array(question.split(BLANK).length - 1).fill(highlight) };
-}
-
-function distance(a, b) {
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    prev = cur;
-  }
-  return prev[b.length];
-}
-
-// 'right' | 'close' | 'wrong'. close 는 맞았는지 본인이 고른다 (오타 · 簡繁 차이 · 분류 이름만 댄 답)
-function grade(input, answers, loose = []) {
-  const n = normalize(input);
-  if (!n) return 'wrong';
-  const keys = answers.map(normalize).filter(Boolean);
-  if (keys.includes(n)) return 'right';
-  if (loose.map(normalize).includes(n)) return 'close';
-  const close = keys.some((k) => k.length >= 3 && distance(n, k) <= Math.max(1, Math.floor(k.length * 0.4)));
-  return close ? 'close' : 'wrong';
-}
-
-// card = { b: 상자, due: 다음 날 (dayNum) }. 힌트를 쓰고 맞히면 상자는 그대로
-function schedule(card, result, today, hinted) {
-  if (result !== 'right') return { b: 0, due: today + BOX_DAYS[0] };
-  const b = hinted ? card.b : Math.min(card.b + 1, BOX_DAYS.length - 1);
+// card = { b: 상자, due: 다음 날 (dayNum) }. 다시 볼 때마다 다음 상자로 (틀리는 일이 없다: 잇든 넘기든 한 번 본 것)
+function schedule(card, today) {
+  const b = Math.min(card.b + 1, BOX_DAYS.length - 1);
   return { b, due: today + BOX_DAYS[b] };
 }
 
@@ -2662,16 +2638,10 @@ function syncDeck(deck, paths, today, first) {
   return out;
 }
 
-// 노트 · 폴더 이름이 바뀌면 그 아래 제목 카드 · 형광펜 카드를 다 옮긴다
+// 노트 · 폴더 이름이 바뀌면 그 아래 카드를 옮긴다
 function renameInDeck(deck, from, to) {
-  const moved = (path) => (path === from ? to : path.startsWith(from + '/') ? to + path.slice(from.length) : null);
-  return Object.fromEntries(
-    Object.entries(deck).map(([k, c]) => {
-      const { path, highlight } = parseKey(k);
-      const p = moved(path);
-      return [p === null ? k : highlight === null ? p : p + HL_SEP + highlight, c];
-    }),
-  );
+  const moved = (path) => (path === from ? to : path.startsWith(from + '/') ? to + path.slice(from.length) : path);
+  return Object.fromEntries(Object.entries(deck).map(([k, c]) => [moved(k), c]));
 }
 
 // 오늘 낼 카드: 오래 밀린 것부터, 하루 DAILY_CAP 장까지
@@ -2683,12 +2653,10 @@ function dueToday(deck, today, doneToday, cap = DAILY_CAP) {
     .map(([p]) => p);
 }
 
-const xpFor = (result, hinted) => (result === 'right' ? (hinted ? Math.floor(REVIEW_XP / 2) : REVIEW_XP) : 0);
-
 // 현지 시각 기준 날짜 번호
 const dayNum = (d = new Date()) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60_000) / 86_400_000);
 
-module.exports = { BLANK, BOX_DAYS, DAILY_CAP, REVIEW_XP, answersOf, namesOf, looseOf, cardOf, cardKeys, parseKey, clozeOf, normalize, grade, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum };
+module.exports = { BOX_DAYS, DAILY_CAP, REVIEW_XP, namesOf, firstParagraph, schedule, syncDeck, renameInDeck, dueToday, dayNum };
 
 };
 
@@ -4290,7 +4258,7 @@ function applyLink(text, m) {
   return text.slice(0, m.index) + linkText(m.target, m.alias) + text.slice(m.index + m.alias.length);
 }
 
-module.exports = { findMentions, applyLink };
+module.exports = { findMentions, applyLink, aliasOk };
 
 };
 
@@ -8705,7 +8673,7 @@ class KitCommitPlugin extends Plugin {
       this.collect.dismissStray(); // 펫 판에 남은 길고양이도 내보낸다
       return new Notice(this.host.T.t('tame.gone'));
     }
-    new TameModal(this.app, this, stray, await this.plus.randomCards(3)).open();
+    new TameModal(this.app, this, stray, await this.plus.neighborCards(3)).open();
   }
 
   openTidy() {
@@ -9702,33 +9670,19 @@ module.exports = { ModalCat };
 
 __defs["plugin/plus-modals"] = function (module, exports, require) {
 'use strict';
-// [Plus] 복습 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
+// [Plus] 카드 잇기 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
 const { Modal, Setting, Notice } = require('obsidian');
-const { grade, BLANK } = require('../core/review');
 const { ModalCat } = require('./plus-cat');
 
-const firstChar = (answers) => [...(answers[1] || answers[0])][0] || '';
-
-// 문제 글. 빈칸은 고양이가 베어 문 자국(.vpp-bite)으로, 글은 setText 로만 넣는다.
-// 제목 카드는 첫 단락에 제목이 안 나와도 먹힌 게 보이게, 맨 위에 먹힌 제목 줄을 둔다
-function drawQuestion(parent, c) {
+// 카드 한 장: 제목과 첫 단락 (가리지 않는다). 글은 setText 로만 넣는다
+function drawCard(parent, c) {
   const box = parent.createDiv({ cls: 'vpp-question' });
-  if (c.kind === 'title') box.createDiv({ cls: 'vpp-title' }).createSpan({ cls: 'vpp-bite', text: BLANK });
-  c.question.split(BLANK).forEach((part, i) => {
-    if (i) box.createSpan({ cls: 'vpp-bite', text: BLANK }).style.setProperty('animation-delay', `${0.15 * i}s`);
-    if (part) box.appendText(part);
-  });
+  box.createDiv({ cls: 'vpp-title', text: c.title });
+  if (c.question) box.appendText(c.question);
   return box;
 }
 
-// 답을 보여 줄 때 먹은 글자를 제자리에 뱉어 놓는다
-function giveBack(box, bites, result) {
-  box.querySelectorAll('.vpp-bite').forEach((el, i) => {
-    el.setText(bites[i] || '');
-    el.addClass(result === 'right' ? 'vpp-spit' : 'vpp-reveal');
-  });
-}
-
+// 카드 잇기: 옛 카드를 다시 보고, 이을 만한 카드 중에 고르고 이유를 적어 잇는다. 맞고 틀림이 없다
 class ReviewModal extends Modal {
   constructor(app, plugin, cards) {
     super(app);
@@ -9736,7 +9690,7 @@ class ReviewModal extends Modal {
     this.plus = plugin.plus;
     this.cards = cards;
     this.i = 0;
-    this.right = 0;
+    this.links = 0;
     this.xp = 0;
   }
 
@@ -9746,7 +9700,6 @@ class ReviewModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass('vpp-modal');
-    // 저전력이면 고양이 · 빈칸 움직임을 다 끈다
     this.modalEl.toggleClass('vpp-still', !!this.plugin.settings.get('lowPower'));
     this.render();
   }
@@ -9754,13 +9707,12 @@ class ReviewModal extends Modal {
   onClose() {
     if (this.cat) this.cat.destroy();
     this.contentEl.empty();
-    this.plus.finish(this.right, this.i);
+    this.plus.finish(this.links, this.i);
   }
 
   render() {
     const el = this.contentEl;
     el.empty();
-    this.hinted = false;
     if (this.cat) this.cat.destroy();
     this.cat = null;
     if (!this.cards.length) {
@@ -9769,78 +9721,86 @@ class ReviewModal extends Modal {
       return;
     }
     if (this.i >= this.cards.length) {
-      el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { right: this.right, total: this.cards.length, xp: this.xp }) });
+      this.titleEl.setText(this.t('plus.cmdReview'));
+      el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { total: this.cards.length, links: this.links, xp: this.xp }) });
       new Setting(el).addButton((b) => b.setButtonText('OK').setCta().onClick(() => this.close()));
       return;
     }
     const c = this.cards[this.i];
+    this.shown = c.candidates.map((x) => x.path);
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
     const stage = el.createDiv({ cls: 'vpp-stage' });
     this.cat = new ModalCat(this.plugin, stage);
-    this.cat.act('bite');
     stage.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reviewFrom', { name: this.plugin.settings.get('petName') }) });
-    this.qEl = drawQuestion(el, c);
-    const hintEl = el.createEl('p', { cls: 'vpp-hint' });
-    const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
-    const row = new Setting(el);
-    const snacks = this.plus.snackCount();
-    row.addButton((b) => {
-      b.setButtonText(snacks ? this.t('plus.hint', { n: snacks }) : this.t('plus.noSnack')).setDisabled(!snacks);
-      b.onClick(() => {
-        if (this.hinted || !this.plus.hint()) return;
-        this.hinted = true;
-        this.cat.act('hint');
-        hintEl.setText(this.t('plus.hintShown', { c: firstChar(c.answers) }));
-        b.setDisabled(true);
-        input.focus();
-      });
-    });
-    row.addButton((b) => b.setButtonText(this.t('plus.submit')).setCta().onClick(() => this.check(input.value)));
-    // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 답이 아니다
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      this.check(input.value);
-    });
-    input.focus();
-  }
-
-  check(value) {
-    const c = this.cards[this.i];
-    const g = grade(value, c.answers, c.loose);
-    if (g !== 'close') return this.settle(g);
-    this.cat.act('close');
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
-    el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
-    new Setting(el)
-      .addButton((b) => b.setButtonText(this.t('plus.markWrong')).onClick(() => this.settle('wrong')))
-      .addButton((b) => b.setButtonText(this.t('plus.markRight')).setCta().onClick(() => this.settle('right')));
-  }
-
-  settle(result) {
-    const c = this.cards[this.i];
-    const xp = this.plus.answer(c.key, result, this.hinted);
-    if (result === 'right') this.right++;
-    this.xp += xp;
-    giveBack(this.qEl, c.kind === 'title' ? [c.answers[0], ...c.bites] : c.bites, result);
-    this.cat.act(result);
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
-    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? `${this.t('plus.right', { xp })} · ${c.answers[0]}` : this.t('plus.wrong', { answer: c.answers[0] }) });
-    this.i++;
-    const next = () => this.render();
+    drawCard(el, c);
+    el.createEl('p', { cls: 'vpp-why', text: this.t('plus.linked', { n: c.linked }) });
+    this.listEl = el.createDiv();
+    this.drawCandidates(c, c.candidates);
     new Setting(el)
       .addButton((b) =>
         b.setButtonText(this.t('plus.open')).onClick(() => {
+          this.plus.visit(c.key);
+          this.i++;
           this.close();
           this.app.workspace.openLinkText(c.path, '', false);
         }),
       )
-      .addButton((b) => {
-        b.setButtonText(this.t('plus.next')).setCta().onClick(next);
-        window.setTimeout(() => b.buttonEl.focus(), 0);
-      });
+      .addButton((b) =>
+        b.setButtonText(this.t('plus.reshuffle')).onClick(() => {
+          const more = c.more(this.shown);
+          this.shown.push(...more.map((x) => x.path));
+          this.drawCandidates(c, more);
+        }),
+      )
+      .addButton((b) =>
+        b.setButtonText(this.t('plus.next')).setCta().onClick(() => {
+          this.plus.visit(c.key);
+          this.i++;
+          this.render();
+        }),
+      );
+  }
+
+  drawCandidates(c, list) {
+    const el = this.listEl;
+    el.empty();
+    if (!list.length) el.createEl('p', { cls: 'vpp-why', text: this.t('plus.noCands') });
+    for (const o of list) {
+      const box = el.createDiv({ cls: 'vpp-tidy vpp-cand' });
+      box.createEl('b', { text: o.title });
+      box.createDiv({ cls: 'vpp-why', text: this.t('plus.why.' + o.why, { via: o.via }) });
+      if (o.excerpt) box.createDiv({ cls: 'vpp-excerpt', text: o.excerpt });
+      const row = new Setting(box);
+      row.addButton((b) => b.setButtonText(this.t('plus.connect')).onClick(() => this.askReason(c, o, box, row)));
+    }
+  }
+
+  // 왜 이어지는지 한 줄 (비워도 된다). 이유를 적는 것이 이 복습의 알맹이다
+  askReason(c, o, box, row) {
+    row.settingEl.remove();
+    const input = box.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.reason') } });
+    const go = async () => {
+      input.disabled = true;
+      const xp = await this.plus.connect(c.path, o.title, input.value);
+      input.remove();
+      act.settingEl.remove();
+      if (xp === null) {
+        box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.connectFail') });
+        return;
+      }
+      this.links++;
+      this.xp += xp;
+      if (this.cat) this.cat.act('right');
+      box.createEl('p', { cls: 'vpp-result vpp-right', text: this.t('plus.connected', { xp }) });
+    };
+    const act = new Setting(box).addButton((b) => b.setButtonText(this.t('plus.connect')).setCta().onClick(go));
+    // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 확인이 아니다
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      go();
+    });
+    input.focus();
   }
 }
 
@@ -9893,31 +9853,34 @@ class TidyModal extends Modal {
   }
 }
 
-module.exports = { ReviewModal, TidyModal, drawQuestion, giveBack };
+module.exports = { ReviewModal, TidyModal, drawCard };
 
 };
 
 __defs["plugin/plus"] = function (module, exports, require) {
 'use strict';
 /*
- * [Plus] 복습 · 링크 정리 · 원래 Vault Pet 기록 가져오기.
- * 로직은 core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
- * 노트를 고치는 건 applyTidy 하나뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
+ * [Plus] 카드 잇기(옛 카드 다시 보기) · 링크 정리 · 원래 Vault Pet 기록 가져오기.
+ * 로직은 core/connect.js · core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
+ * 노트를 고치는 건 applyTidy · connect 둘뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
  */
-const { TFile } = require('obsidian');
-const { cardOf, cardKeys, parseKey, clozeOf, schedule, syncDeck, renameInDeck, dueToday, xpFor, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
+const obsidian = require('obsidian');
+const { TFile } = obsidian;
+const { schedule, syncDeck, renameInDeck, dueToday, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
+const { excerptOf, neighborsOf, candidates, neighborQuiz, appendLink } = require('../core/connect');
 const { findMentions, applyLink } = require('../core/tidy');
-const { FOODS } = require('../core/shop');
 const { loadSafe } = require('./safedata');
 
 const TIDY_XP = 20;
+const CONNECT_XP = 20; // 옛 카드를 다른 카드와 이었을 때
 const ORIGINAL_ID = 'vault-pet';
 // 할 카드 수 · 정리할 곳 수를 다시 세는 간격 (분). 노트를 전부 읽으니 자주 하지 않는다
 const RECOUNT_MIN = 10;
 // 사람이 앞에 있다고 볼 만큼 최근에 만졌고, 지금 막 치는 중은 아닐 때만 말을 건다
 const NUDGE_IDLE_S = [20, 600];
 
-const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0 };
+// correct = 이은 카드 수 + 길들이기에서 맞힌 수 (진화 조건 '이은 카드'). paid = 이미 경험치를 준 연결
+const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0, paid: {} };
 const TIDY_DEFAULT = { done: 0, open: 0, paid: {}, nudged: 0 };
 
 class Plus {
@@ -9956,7 +9919,9 @@ class Plus {
     const out = [];
     for (const f of this.files()) {
       try {
-        out.push({ path: f.path, title: f.basename, text: await this.plugin.app.vault.cachedRead(f) });
+        const cache = this.plugin.app.metadataCache.getFileCache(f);
+        const tags = cache && obsidian.getAllTags ? obsidian.getAllTags(cache) || [] : [];
+        out.push({ path: f.path, title: f.basename, text: await this.plugin.app.vault.cachedRead(f), tags: [...new Set(tags)] });
       } catch {
         // 못 읽는 노트는 건너뛴다
       }
@@ -9964,16 +9929,20 @@ class Plus {
     return out;
   }
 
-  /* ── 복습 ── */
+  /* ── 카드 잇기 ── */
 
-  // 덱을 지금 노트에 맞춘다 (제목 카드 + 형광펜 카드). 읽은 글은 돌려줘서 다시 읽지 않게
+  graph() {
+    return neighborsOf(this.plugin.app.metadataCache.resolvedLinks);
+  }
+
+  // 덱을 지금 노트에 맞춘다 (노트 하나 = 카드 하나). 읽은 글은 돌려줘서 다시 읽지 않게
   async syncDeck() {
     const notes = await this.notes();
     const r = this.review();
-    const deck = syncDeck(r.deck, notes.flatMap((n) => cardKeys(n.path, n.text)), dayNum(), !r.seeded);
+    const deck = syncDeck(r.deck, notes.map((n) => n.path), dayNum(), !r.seeded);
     const same = r.seeded && Object.keys(deck).length === Object.keys(r.deck).length && Object.keys(deck).every((k) => r.deck[k]);
     if (!same) this.setReview({ deck, seeded: true });
-    return new Map(notes.map((n) => [n.path, n]));
+    return notes;
   }
 
   rename(from, to) {
@@ -9985,54 +9954,68 @@ class Plus {
     return t.day === dayNum() ? t.n : 0;
   }
 
-  // 오늘 낼 카드. 첫 단락이 없는 노트는 문제가 안 되니 건너뛰고 다음 카드를 채운다
+  // 오늘 다시 볼 카드: 글 · 지금 이어진 카드 수 · 이을 만한 카드. more(skip) 는 다른 후보를 다시 뽑는다
   async dueCards() {
     const notes = await this.syncDeck();
-    const room = DAILY_CAP - this.doneToday();
-    const out = [];
-    for (const key of dueToday(this.review().deck, dayNum(), 0, Infinity)) {
-      if (out.length >= room) break;
-      const { path, highlight } = parseKey(key);
-      const note = notes.get(path);
-      if (!note) continue;
-      const card = highlight === null ? cardOf(note.title, note.text) : clozeOf(note.text, highlight);
-      if (card) out.push({ key, path, ...card });
-    }
+    const by = new Map(notes.map((n) => [n.path, n]));
+    const nb = this.graph();
+    const out = dueToday(this.review().deck, dayNum(), this.doneToday())
+      .map((path) => by.get(path))
+      .filter(Boolean)
+      .map((note) => ({
+        key: note.path,
+        path: note.path,
+        title: note.title,
+        question: excerptOf(note.text),
+        linked: (nb[note.path] || new Set()).size,
+        candidates: candidates(note, notes, nb),
+        more: (skip) => candidates(note, notes, nb, Math.random, 4, skip),
+      }));
     this.setReview({ due: out.length });
     return out;
   }
 
-  // result: 'right' | 'wrong'. 힌트를 쓰고 맞힌 건 경험치 반 · 상자 그대로 · 진화용 '맞힌 수'에는 안 센다
-  answer(key, result, hinted) {
+  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 같은 연결은 한 번만 경험치 · 이은 카드 수
+  async connect(path, target, reason) {
+    const f = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (!(f instanceof TFile)) return null;
+    let ok = false;
+    await this.plugin.app.vault.process(f, (text) => {
+      const next = appendLink(text, target, reason);
+      ok = next !== null;
+      return ok ? next : text;
+    });
+    if (!ok) return null;
+    const r = this.review();
+    const key = `${path}\n${target}`;
+    if (r.paid[key]) return 0;
+    this.setReview({ paid: { ...r.paid, [key]: Date.now() }, correct: r.correct + 1 });
+    if (this.plugin.collect) this.plugin.collect.addCorrect();
+    this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
+    this.host.recomputeGrowth();
+    return CONNECT_XP;
+  }
+
+  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1
+  visit(key) {
     const r = this.review();
     const today = dayNum();
-    const card = r.deck[key] || { b: 0, due: today };
     this.setReview({
-      deck: { ...r.deck, [key]: schedule(card, result, today, hinted) },
+      deck: { ...r.deck, [key]: schedule(r.deck[key] || { b: 0, due: today }, today) },
       done: r.done + 1,
-      correct: r.correct + (result === 'right' && !hinted ? 1 : 0),
       today: { day: today, n: this.doneToday() + 1 },
       days: r.days.includes(today) ? r.days : [...r.days, today].slice(-60),
       due: Math.max(0, r.due - 1),
     });
-    if (result === 'right' && !hinted && this.plugin.collect) this.plugin.collect.addCorrect();
-    const xp = xpFor(result, hinted);
-    if (xp) this.host.gamify.grant(xp, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
-    return xp;
   }
 
-  // 길들이기 문제: 제목 카드 n 장을 아무거나 (상자 · 오늘 할당량과 상관없이)
-  async randomCards(n) {
-    const pool = (await this.notes()).map((note) => ({ note, card: cardOf(note.title, note.text) })).filter((x) => x.card);
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    return pool.slice(0, n).map(({ note, card }) => ({ key: note.path, path: note.path, ...card }));
+  // 길들이기 문제: 이웃이 있는 카드 n 장 (상자 · 오늘 할당량과 상관없이)
+  async neighborCards(n) {
+    return neighborQuiz(await this.notes(), this.graph(), Math.random, n);
   }
 
-  // 길들이기 문제를 풀었다: 경험치와 맞힌 수는 주지만 상자는 건드리지 않는다
+  // 길들이기 문제를 풀었다: 맞히면 경험치와 '이은 카드' 수
   practice(result) {
     if (result !== 'right') return 0;
     const r = this.review();
@@ -10043,24 +10026,8 @@ class Plus {
     return REVIEW_XP;
   }
 
-  finish(right, total) {
-    if (total) this.host.bubble(this.host.T.line('reviewDone', { right, total }), 'quest');
-  }
-
-  snacks() {
-    const pantry = this.plugin.state.get('pantry') || {};
-    return FOODS.filter((x) => x.group === 'snack' && pantry[x.key] > 0).sort((a, b) => a.price - b.price);
-  }
-
-  snackCount() {
-    const pantry = this.plugin.state.get('pantry') || {};
-    return this.snacks().reduce((n, x) => n + pantry[x.key], 0);
-  }
-
-  // 냄새 맡기: 제일 싼 간식 하나를 고양이에게 준다 (바닥에 떨어진 걸 먹으러 간다). 줬으면 true
-  hint() {
-    const [snack] = this.snacks();
-    return !!snack && this.host.giveFood(snack.key);
+  finish(links, total) {
+    if (total) this.host.bubble(this.host.T.line('reviewDone', { right: links, total }), 'quest');
   }
 
   /* ── 링크 정리 ── */
@@ -10888,15 +10855,14 @@ module.exports = { SyncBook, mergeData, sharedOf, same, DEVICE_SETTINGS, DEVICE_
 
 __defs["plugin/tame-modal"] = function (module, exports, require) {
 'use strict';
-// [Plus] 길들이기 창: 먹이 하나 주기 → 복습 문제 셋 → (안 보이는) 주사위 → 이름 짓기.
+// [Plus] 길들이기 창: 먹이 하나 주기 → 이웃 문제 셋 (이 카드와 이어진 카드 고르기) → (안 보이는) 주사위 → 이름 짓기.
 // 확률은 보여 주지 않고, 맞힐 때마다 "조금 편해 보인다" 같은 말만 한다. 먹이를 준 뒤 창을 닫으면 달아난다
 const { Modal, Setting, Notice } = require('obsidian');
-const { grade } = require('../core/review');
 const { tameChance } = require('../core/collection');
 const { breedOf } = require('../core/breeds');
 const { FOODS } = require('../core/shop');
 const { ModalCat } = require('./plus-cat');
-const { drawQuestion, giveBack } = require('./plus-modals');
+const { drawCard } = require('./plus-modals');
 
 const QUESTIONS = 3;
 
@@ -10972,39 +10938,28 @@ class TameModal extends Modal {
   renderQuestion(text) {
     const c = this.cards[this.i];
     const el = this.head(text || this.t('tame.mood' + Math.min(this.correct, 3)));
-    el.createEl('p', { cls: 'setting-item-description', text: this.t('tame.q', { i: this.i + 1, total: this.cards.length }) });
-    this.qEl = drawQuestion(el, c);
-    const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
-    new Setting(el).addButton((b) => b.setButtonText(this.t('plus.submit')).setCta().onClick(() => this.check(input.value)));
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      this.check(input.value);
-    });
-    input.focus();
+    el.createEl('p', { cls: 'setting-item-description', text: `${this.t('tame.q', { i: this.i + 1, total: this.cards.length })} · ${this.t('tame.ask')}` });
+    drawCard(el, c);
+    const opts = el.createDiv({ cls: 'vpp-opts' });
+    for (const o of c.options) {
+      const b = opts.createEl('button', { text: o.title });
+      b.dataset.path = o.path;
+      b.addEventListener('click', () => this.settle(o.path === c.answer ? 'right' : 'wrong', opts));
+    }
   }
 
-  check(value) {
-    const c = this.cards[this.i];
-    const g = grade(value, c.answers, c.loose);
-    if (g !== 'close') return this.settle(g);
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
-    el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
-    new Setting(el)
-      .addButton((b) => b.setButtonText(this.t('plus.markWrong')).onClick(() => this.settle('wrong')))
-      .addButton((b) => b.setButtonText(this.t('plus.markRight')).setCta().onClick(() => this.settle('right')));
-  }
-
-  settle(result) {
+  settle(result, opts) {
     const c = this.cards[this.i];
     this.plugin.plus.practice(result);
     if (result === 'right') this.correct++;
-    giveBack(this.qEl, c.kind === 'title' ? [c.answers[0], ...c.bites] : c.bites, result);
+    opts.querySelectorAll('button').forEach((b) => {
+      b.disabled = true;
+      if (b.dataset.path === c.answer) b.addClass('vpp-answer');
+    });
     this.cat.act(result);
+    const answer = (c.options.find((o) => o.path === c.answer) || {}).title || '';
     const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
-    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? this.t('tame.right') : this.t('tame.wrong', { answer: c.answers[0] }) });
+    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? this.t('tame.right') : this.t('tame.wrong', { answer }) });
     this.i++;
     const last = this.i >= this.cards.length;
     new Setting(el).addButton((b) => {
@@ -23828,7 +23783,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 ;
-// [Plus] 복습 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
+// [Plus] 카드 잇기 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
 // 중국어는 번체 (이 포크는 zh 전체를 번체로 바꿨다)
 (function (root) {
   const I = typeof module === 'object' && module.exports && module.exports.UI ? module.exports : root.I18N;
@@ -23837,22 +23792,22 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
 
   const LINE = {
     ko: {
-      reviewNudge: lines(['오늘 복습할 카드가 {n}장 있어!||내가 글자를 좀 먹어 버렸거든', '복습 시간이야! {n}장만 같이 보자']),
-      reviewDone: lines(['{right}/{total} 맞혔어! 대단해', '오늘 복습 끝! {right}장 기억해 냈어']),
+      reviewNudge: lines(['옛 카드 {n}장이 기다리고 있어!||어떤 카드와 이어질지 같이 보자', '카드 이을 시간이야! {n}장만 같이 보자']),
+      reviewDone: lines(['{total}장을 다시 보고 {right}줄을 이었어!', '카드 상자가 더 촘촘해졌어! {right}줄이 늘었어']),
       tidyFound: lines(['찾았다! 링크로 이으면 좋을 곳이 {n}군데 있어']),
       strayHere: lines(['처음 보는 고양이가 이쪽을 보고 있어…||눌러 볼래?', '어? 낯선 고양이가 왔어!']),
       tameWin: lines(['{name}(이)가 우리 집에 왔어! 하우스 도감에서 볼 수 있어']),
     },
     en: {
-      reviewNudge: lines(['{n} cards to review today!||I may have eaten a few words', 'Review time! Just {n} cards together']),
-      reviewDone: lines(['{right}/{total} right! Amazing', 'Review done! You remembered {right}']),
+      reviewNudge: lines(['{n} old cards are waiting!||Let us see what they connect to', 'Time to connect! Just {n} cards together']),
+      reviewDone: lines(['{total} cards revisited, {right} new links!', 'The card box is tighter today! {right} more links']),
       tidyFound: lines(['Found something! {n} spots could become links']),
       strayHere: lines(['A cat I have never seen is watching us…||Want to say hi?', 'Oh? A stranger cat just showed up!']),
       tameWin: lines(['{name} moved in! Find them in the house catalog']),
     },
     zh: {
-      reviewNudge: lines(['今天有 {n} 張卡片要複習！||我好像把一些字吃掉了', '複習時間到！一起看 {n} 張就好']),
-      reviewDone: lines(['答對 {right}/{total}！好厲害', '今天複習完畢！你記起了 {right} 張']),
+      reviewNudge: lines(['有 {n} 張舊卡片在等你！||看看它們能跟誰連起來', '串連時間到！一起看 {n} 張就好']),
+      reviewDone: lines(['拜訪了 {total} 張，牽了 {right} 條線！', '卡片盒又更緊密了！多了 {right} 條連結']),
       tidyFound: lines(['我發現了東西！有 {n} 個地方可以連起來']),
       strayHere: lines(['有隻沒見過的貓在偷看我們…||要去打個招呼嗎？', '咦？來了一隻陌生的貓！']),
       tameWin: lines(['{name}搬來我們家了！可以在貓屋的圖鑑看到牠']),
@@ -23865,35 +23820,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     ko: {
       'stage.cat2': '공부 고양이',
       'stage.cat3': '현자 고양이',
-      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 맞힌 문제 {correct}/{needCorrect}',
-      'quest.review': '카드 {n}장 복습하기',
+      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 이은 카드 {correct}/{needCorrect}',
+      'quest.review': '옛 카드 {n}장 다시 보기',
       'quest.tidy': '링크 정리 {n}곳',
-      'skill.review.how': '명령 팔레트에서 "복습 시작"을 고르거나, 고양이 말풍선을 눌러 복습해요',
+      'skill.review.how': '명령어 팔레트에서 "카드 잇기"를 고르거나 고양이 말풍선을 눌러요. 옛 카드를 다시 보고 다른 카드와 이어요',
       'skill.tidy.how': '명령 팔레트에서 "링크 정리"를 고르면, 노트 제목이 그냥 글로 적힌 곳을 [[링크]]로 바꿔요',
-      'bonus.review': '복습',
+      'bonus.review': '카드 잇기',
       'bonus.tidy': '링크 정리: {target}',
-      'pet.linkReview': '눌러서 복습 시작',
+      'pet.linkReview': '눌러서 카드 잇기',
       'pet.linkTidy': '눌러서 보기',
-      'plus.trayReview': '복습 ({n})',
+      'plus.trayReview': '카드 잇기 ({n})',
       'plus.trayTidy': '링크 정리 ({n})',
-      'plus.cmdReview': '복습 시작',
+      'plus.cmdReview': '카드 잇기',
       'plus.cmdTidy': '링크 정리',
-      'plus.reviewTitle': '복습 {i}/{total}',
-      'plus.reviewEmpty': '오늘 복습할 카드가 없어요. 내일 또 와요!',
-      'plus.reviewFrom': '{name}이(가) 제목을 먹어 버렸어요. 무슨 노트일까요?',
-      'plus.placeholder': '노트 제목 (中文 · English · 약어 아무거나)',
-      'plus.submit': '확인',
-      'plus.hint': '냄새 맡기 (간식 1개 · 남은 간식 {n})',
-      'plus.noSnack': '간식이 없어요. 상점에서 사 오세요',
-      'plus.hintShown': '첫 글자는 「{c}」',
-      'plus.right': '정답! +{xp} XP',
-      'plus.wrong': '괜찮아요! 정답은 {answer}. 내일 한 번 더 만나요',
-      'plus.close': '거의 맞았어요. 정답은 {answer} — 맞은 걸로 할까요?',
-      'plus.markRight': '맞은 걸로',
-      'plus.markWrong': '틀린 걸로',
+      'plus.reviewTitle': '카드 잇기 {i}/{total}',
+      'plus.reviewEmpty': '오늘 다시 볼 카드가 없어요. 내일 또 만나요!',
+      'plus.reviewFrom': '{name#이/가} 옛 카드를 물어 왔어요. 어떤 카드와 이어질까요?',
       'plus.next': '다음',
       'plus.open': '노트 열기',
-      'plus.summary': '{right}/{total} 맞혔어요 · +{xp} XP',
+      'plus.linked': '지금 {n}장과 이어져 있어요',
+      'plus.why.mention': '글에서 서로를 언급해요',
+      'plus.why.tag': '같은 태그 {via}',
+      'plus.why.neighbor': '둘 다 "{via}"와 이어져 있어요',
+      'plus.why.random': '우연히 뽑힌 카드',
+      'plus.connect': '잇기',
+      'plus.reason': '왜 이어지나요? (비워도 돼요)',
+      'plus.connected': '이었어요! +{xp} XP',
+      'plus.connectFail': '노트가 방금 바뀌었거나 이미 이어져 있어요',
+      'plus.reshuffle': '다른 카드 보기',
+      'plus.noCands': '이을 만한 카드를 못 찾았어요',
+      'tame.ask': '이 카드와 이어진 카드는?',
+      'plus.summary': '{total}장을 다시 보고 {links}줄을 이었어요 · +{xp} XP',
       'plus.tidyTitle': '링크 정리',
       'plus.tidyEmpty': '링크로 이을 곳이 없어요. 깔끔해요!',
       'plus.tidyIntro': '다른 노트의 제목이 나오는데 링크가 아닌 곳이에요. 누른 것만 바꿔요.',
@@ -23915,7 +23872,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '물방울 고양이', 'stage.tide2': '파도 물방울', 'stage.tide3': '해룡 물방울',
       'stage.gear': '톱니 고양이', 'stage.gear2': '태엽 톱니', 'stage.gear3': '강철 톱니',
       'stage.dragon': '아기용 고양이', 'stage.dragon2': '날개 아기용', 'stage.dragon3': '화룡',
-      'need.links': '링크', 'need.correct': '맞힌 문제', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
+      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
       'home.toNextAny': '<b>{stage}</b>까지: {list}',
       'cats.title': '고양이 도감',
       'cats.sub': '데려온 고양이는 저마다 따로 자라요. 데려온 고양이만 경험치를 받아요',
@@ -23928,7 +23885,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': '처음 보는 고양이예요. 조심스럽게 다가가 볼까요?',
       'tame.noFood': '줄 먹이가 없어요. 상점에서 먹이나 간식을 사 오세요',
       'tame.pickFood': '먹이를 하나 내밀어 보세요',
-      'tame.ate': '{food}을(를) 먹었어요. 이제 이 고양이가 글자를 물어 갔어요!',
+      'tame.ate': '{food}을(를) 먹고는 카드 상자를 빤히 봐요',
       'tame.q': '문제 {i}/{total}',
       'tame.mood0': '아직 경계하고 있어요…',
       'tame.mood1': '귀가 조금 풀렸어요',
@@ -23953,35 +23910,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     en: {
       'stage.cat2': 'Scholar Cat',
       'stage.cat3': 'Sage Cat',
-      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · correct {correct}/{needCorrect}',
-      'quest.review': 'Review {n} cards',
+      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · connections {correct}/{needCorrect}',
+      'quest.review': 'Revisit {n} old cards',
       'quest.tidy': 'Tidy {n} links',
-      'skill.review.how': 'Pick "Start review" in the command palette, or click the cat\'s bubble',
+      'skill.review.how': 'Pick "Connect cards" in the command palette or click the bubble. Revisit an old card and link it to another',
       'skill.tidy.how': 'Pick "Tidy links" in the command palette to turn plain mentions of note titles into [[links]]',
-      'bonus.review': 'Review',
+      'bonus.review': 'Connecting cards',
       'bonus.tidy': 'Tidy link: {target}',
-      'pet.linkReview': 'Click to review',
+      'pet.linkReview': 'Click to connect cards',
       'pet.linkTidy': 'Click to see',
-      'plus.trayReview': 'Review ({n})',
+      'plus.trayReview': 'Connect cards ({n})',
       'plus.trayTidy': 'Tidy links ({n})',
-      'plus.cmdReview': 'Start review',
+      'plus.cmdReview': 'Connect cards',
       'plus.cmdTidy': 'Tidy links',
-      'plus.reviewTitle': 'Review {i}/{total}',
-      'plus.reviewEmpty': 'Nothing to review today. See you tomorrow!',
-      'plus.reviewFrom': '{name} ate the title. Which note is this?',
-      'plus.placeholder': 'Note title (any part works)',
-      'plus.submit': 'Check',
-      'plus.hint': 'Sniff (1 snack · {n} left)',
-      'plus.noSnack': 'No snacks left. Buy some in the shop',
-      'plus.hintShown': 'It starts with “{c}”',
-      'plus.right': 'Right! +{xp} XP',
-      'plus.wrong': 'That’s okay! It was {answer}. You’ll see it again tomorrow',
-      'plus.close': 'Almost. It was {answer} — count it as right?',
-      'plus.markRight': 'Count as right',
-      'plus.markWrong': 'Count as wrong',
+      'plus.reviewTitle': 'Connect {i}/{total}',
+      'plus.reviewEmpty': 'No cards to revisit today. See you tomorrow!',
+      'plus.reviewFrom': '{name} brought back an old card. What does it connect to?',
       'plus.next': 'Next',
       'plus.open': 'Open note',
-      'plus.summary': '{right}/{total} right · +{xp} XP',
+      'plus.linked': 'Linked with {n} cards now',
+      'plus.why.mention': 'One mentions the other',
+      'plus.why.tag': 'Shared tag {via}',
+      'plus.why.neighbor': 'Both link to "{via}"',
+      'plus.why.random': 'A chance draw',
+      'plus.connect': 'Connect',
+      'plus.reason': 'Why are they related? (optional)',
+      'plus.connected': 'Connected! +{xp} XP',
+      'plus.connectFail': 'The note just changed or is already linked',
+      'plus.reshuffle': 'Show other cards',
+      'plus.noCands': 'No cards to suggest',
+      'tame.ask': 'Which card is linked to this one?',
+      'plus.summary': 'Revisited {total} · {links} new links · +{xp} XP',
       'plus.tidyTitle': 'Tidy links',
       'plus.tidyEmpty': 'Nothing to link. All tidy!',
       'plus.tidyIntro': 'Another note’s title appears here without a link. Only the ones you click change.',
@@ -24003,7 +23962,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Droplet cat', 'stage.tide2': 'Wave droplet', 'stage.tide3': 'Sea dragon',
       'stage.gear': 'Gear cat', 'stage.gear2': 'Clockwork gear', 'stage.gear3': 'Mecha gear',
       'stage.dragon': 'Dragonling cat', 'stage.dragon2': 'Winged dragonling', 'stage.dragon3': 'Fire dragon',
-      'need.links': 'links', 'need.correct': 'correct', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
+      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
       'home.toNextAny': 'To <b>{stage}</b>: {list}',
       'cats.title': 'Cat catalog',
       'cats.sub': 'Every cat grows on its own. Only the cat with you earns XP',
@@ -24016,7 +23975,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': 'A cat you have never seen. Approach slowly?',
       'tame.noFood': 'You have no food to offer. Buy a meal or snack in the shop',
       'tame.pickFood': 'Hold out something to eat',
-      'tame.ate': 'It ate the {food}. Now it has run off with some words!',
+      'tame.ate': 'It ate the {food} and is now eyeing your card box',
       'tame.q': 'Question {i}/{total}',
       'tame.mood0': 'Still on guard…',
       'tame.mood1': 'Its ears relax a little',
@@ -24041,35 +24000,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     zh: {
       'stage.cat2': '學習貓',
       'stage.cat3': '賢者貓',
-      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 答對 {correct}/{needCorrect}',
-      'quest.review': '複習 {n} 張卡片',
+      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 串連 {correct}/{needCorrect}',
+      'quest.review': '拜訪 {n} 張舊卡片',
       'quest.tidy': '整理 {n} 處連結',
-      'skill.review.how': '在命令面板選「開始複習」，或點貓咪的對話泡泡來複習',
+      'skill.review.how': '在命令面板選「串連卡片」，或點貓咪的對話泡泡。重看一張舊卡，想想它能跟誰連起來',
       'skill.tidy.how': '在命令面板選「整理連結」，把直接寫出筆記標題的地方變成 [[連結]]',
-      'bonus.review': '複習',
+      'bonus.review': '串連卡片',
       'bonus.tidy': '整理連結：{target}',
-      'pet.linkReview': '點我開始複習',
+      'pet.linkReview': '點我開始串連',
       'pet.linkTidy': '點我看看',
-      'plus.trayReview': '複習（{n}）',
+      'plus.trayReview': '串連卡片（{n}）',
       'plus.trayTidy': '整理連結（{n}）',
-      'plus.cmdReview': '開始複習',
+      'plus.cmdReview': '串連卡片',
       'plus.cmdTidy': '整理連結',
-      'plus.reviewTitle': '複習 {i}/{total}',
-      'plus.reviewEmpty': '今天沒有要複習的卡片，明天再來！',
-      'plus.reviewFrom': '{name}把標題吃掉了，這是哪篇筆記？',
-      'plus.placeholder': '筆記標題（中文、英文或縮寫都可以）',
-      'plus.submit': '確認',
-      'plus.hint': '嗅覺（用掉 1 個零食 · 還有 {n} 個）',
-      'plus.noSnack': '沒有零食了，去商店買一些吧',
-      'plus.hintShown': '第一個字是「{c}」',
-      'plus.right': '答對了！+{xp} XP',
-      'plus.wrong': '沒關係！答案是 {answer}，明天再見它一次',
-      'plus.close': '差一點！答案是 {answer}，要算你對嗎？',
-      'plus.markRight': '算我對',
-      'plus.markWrong': '算我錯',
-      'plus.next': '下一題',
+      'plus.reviewTitle': '串連 {i}/{total}',
+      'plus.reviewEmpty': '今天沒有要拜訪的卡片，明天再來！',
+      'plus.reviewFrom': '{name}叼來一張舊卡片。它能跟哪張卡連起來？',
+      'plus.next': '下一張',
       'plus.open': '開啟筆記',
-      'plus.summary': '答對 {right}/{total} · +{xp} XP',
+      'plus.linked': '目前連著 {n} 張卡',
+      'plus.why.mention': '內文提到了對方',
+      'plus.why.tag': '共同標籤 {via}',
+      'plus.why.neighbor': '都連著「{via}」',
+      'plus.why.random': '隨機抽到的卡',
+      'plus.connect': '連起來',
+      'plus.reason': '為什麼相關？（可留空）',
+      'plus.connected': '連起來了！+{xp} XP',
+      'plus.connectFail': '筆記剛被改過，或已經連結了',
+      'plus.reshuffle': '換一批',
+      'plus.noCands': '找不到可以推薦的卡片',
+      'tame.ask': '哪一張卡跟它連在一起？',
+      'plus.summary': '拜訪 {total} 張 · 牽了 {links} 條線 · +{xp} XP',
       'plus.tidyTitle': '整理連結',
       'plus.tidyEmpty': '沒有可以連起來的地方，很整齊！',
       'plus.tidyIntro': '這些地方提到了其他筆記的標題，但還不是連結。只會改你按下的那一筆。',
@@ -24091,7 +24052,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '水滴貓', 'stage.tide2': '浪花水滴貓', 'stage.tide3': '海龍水滴貓',
       'stage.gear': '齒輪貓', 'stage.gear2': '發條齒輪貓', 'stage.gear3': '機甲齒輪貓',
       'stage.dragon': '幼龍貓', 'stage.dragon2': '飛翼幼龍貓', 'stage.dragon3': '炎龍貓',
-      'need.links': '連結', 'need.correct': '答對', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
+      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
       'home.toNextAny': '距 <b>{stage}</b>：{list}',
       'cats.title': '貓咪圖鑑',
       'cats.sub': '每隻貓各自成長，只有帶在身邊的那隻會拿到經驗值',
@@ -24104,7 +24065,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': '一隻沒見過的貓。要慢慢靠近牠嗎？',
       'tame.noFood': '沒有可以給牠的食物，去商店買點正餐或零食吧',
       'tame.pickFood': '拿一樣吃的給牠',
-      'tame.ate': '牠吃了{food}，然後叼走了幾個字！',
+      'tame.ate': '牠吃了{food}，然後盯著你的卡片盒看',
       'tame.q': '第 {i}/{total} 題',
       'tame.mood0': '牠還很警戒…',
       'tame.mood1': '牠的耳朵放鬆了一點',
@@ -40380,7 +40341,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
 
 ;if (window.PetSprite !== undefined) PetSprite = window.PetSprite; if (window.PixelArt !== undefined) PixelArt = window.PixelArt; if (window.I18N !== undefined) I18N = window.I18N; if (window.PetFriends !== undefined) PetFriends = window.PetFriends; if (window.PetToys !== undefined) PetToys = window.PetToys; if (window.PetSound !== undefined) PetSound = window.PetSound; if (window.ToyKit !== undefined) ToyKit = window.ToyKit;
 /* kit/i18n-plus.js */
-// [Plus] 복습 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
+// [Plus] 카드 잇기 · 링크 정리 · 진화 단계 글. i18n-obsidian.js 다음에 읽힌다 (같은 방식으로 덮어 붙인다).
 // 중국어는 번체 (이 포크는 zh 전체를 번체로 바꿨다)
 (function (root) {
   const I = typeof module === 'object' && module.exports && module.exports.UI ? module.exports : root.I18N;
@@ -40389,22 +40350,22 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
 
   const LINE = {
     ko: {
-      reviewNudge: lines(['오늘 복습할 카드가 {n}장 있어!||내가 글자를 좀 먹어 버렸거든', '복습 시간이야! {n}장만 같이 보자']),
-      reviewDone: lines(['{right}/{total} 맞혔어! 대단해', '오늘 복습 끝! {right}장 기억해 냈어']),
+      reviewNudge: lines(['옛 카드 {n}장이 기다리고 있어!||어떤 카드와 이어질지 같이 보자', '카드 이을 시간이야! {n}장만 같이 보자']),
+      reviewDone: lines(['{total}장을 다시 보고 {right}줄을 이었어!', '카드 상자가 더 촘촘해졌어! {right}줄이 늘었어']),
       tidyFound: lines(['찾았다! 링크로 이으면 좋을 곳이 {n}군데 있어']),
       strayHere: lines(['처음 보는 고양이가 이쪽을 보고 있어…||눌러 볼래?', '어? 낯선 고양이가 왔어!']),
       tameWin: lines(['{name}(이)가 우리 집에 왔어! 하우스 도감에서 볼 수 있어']),
     },
     en: {
-      reviewNudge: lines(['{n} cards to review today!||I may have eaten a few words', 'Review time! Just {n} cards together']),
-      reviewDone: lines(['{right}/{total} right! Amazing', 'Review done! You remembered {right}']),
+      reviewNudge: lines(['{n} old cards are waiting!||Let us see what they connect to', 'Time to connect! Just {n} cards together']),
+      reviewDone: lines(['{total} cards revisited, {right} new links!', 'The card box is tighter today! {right} more links']),
       tidyFound: lines(['Found something! {n} spots could become links']),
       strayHere: lines(['A cat I have never seen is watching us…||Want to say hi?', 'Oh? A stranger cat just showed up!']),
       tameWin: lines(['{name} moved in! Find them in the house catalog']),
     },
     zh: {
-      reviewNudge: lines(['今天有 {n} 張卡片要複習！||我好像把一些字吃掉了', '複習時間到！一起看 {n} 張就好']),
-      reviewDone: lines(['答對 {right}/{total}！好厲害', '今天複習完畢！你記起了 {right} 張']),
+      reviewNudge: lines(['有 {n} 張舊卡片在等你！||看看它們能跟誰連起來', '串連時間到！一起看 {n} 張就好']),
+      reviewDone: lines(['拜訪了 {total} 張，牽了 {right} 條線！', '卡片盒又更緊密了！多了 {right} 條連結']),
       tidyFound: lines(['我發現了東西！有 {n} 個地方可以連起來']),
       strayHere: lines(['有隻沒見過的貓在偷看我們…||要去打個招呼嗎？', '咦？來了一隻陌生的貓！']),
       tameWin: lines(['{name}搬來我們家了！可以在貓屋的圖鑑看到牠']),
@@ -40417,35 +40378,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     ko: {
       'stage.cat2': '공부 고양이',
       'stage.cat3': '현자 고양이',
-      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 맞힌 문제 {correct}/{needCorrect}',
-      'quest.review': '카드 {n}장 복습하기',
+      'home.toNextPlus': '<b>{stage}</b>까지: Lv.{lv}/{needLv} · 링크 {links}/{needLinks} · 이은 카드 {correct}/{needCorrect}',
+      'quest.review': '옛 카드 {n}장 다시 보기',
       'quest.tidy': '링크 정리 {n}곳',
-      'skill.review.how': '명령 팔레트에서 "복습 시작"을 고르거나, 고양이 말풍선을 눌러 복습해요',
+      'skill.review.how': '명령어 팔레트에서 "카드 잇기"를 고르거나 고양이 말풍선을 눌러요. 옛 카드를 다시 보고 다른 카드와 이어요',
       'skill.tidy.how': '명령 팔레트에서 "링크 정리"를 고르면, 노트 제목이 그냥 글로 적힌 곳을 [[링크]]로 바꿔요',
-      'bonus.review': '복습',
+      'bonus.review': '카드 잇기',
       'bonus.tidy': '링크 정리: {target}',
-      'pet.linkReview': '눌러서 복습 시작',
+      'pet.linkReview': '눌러서 카드 잇기',
       'pet.linkTidy': '눌러서 보기',
-      'plus.trayReview': '복습 ({n})',
+      'plus.trayReview': '카드 잇기 ({n})',
       'plus.trayTidy': '링크 정리 ({n})',
-      'plus.cmdReview': '복습 시작',
+      'plus.cmdReview': '카드 잇기',
       'plus.cmdTidy': '링크 정리',
-      'plus.reviewTitle': '복습 {i}/{total}',
-      'plus.reviewEmpty': '오늘 복습할 카드가 없어요. 내일 또 와요!',
-      'plus.reviewFrom': '{name}이(가) 제목을 먹어 버렸어요. 무슨 노트일까요?',
-      'plus.placeholder': '노트 제목 (中文 · English · 약어 아무거나)',
-      'plus.submit': '확인',
-      'plus.hint': '냄새 맡기 (간식 1개 · 남은 간식 {n})',
-      'plus.noSnack': '간식이 없어요. 상점에서 사 오세요',
-      'plus.hintShown': '첫 글자는 「{c}」',
-      'plus.right': '정답! +{xp} XP',
-      'plus.wrong': '괜찮아요! 정답은 {answer}. 내일 한 번 더 만나요',
-      'plus.close': '거의 맞았어요. 정답은 {answer} — 맞은 걸로 할까요?',
-      'plus.markRight': '맞은 걸로',
-      'plus.markWrong': '틀린 걸로',
+      'plus.reviewTitle': '카드 잇기 {i}/{total}',
+      'plus.reviewEmpty': '오늘 다시 볼 카드가 없어요. 내일 또 만나요!',
+      'plus.reviewFrom': '{name#이/가} 옛 카드를 물어 왔어요. 어떤 카드와 이어질까요?',
       'plus.next': '다음',
       'plus.open': '노트 열기',
-      'plus.summary': '{right}/{total} 맞혔어요 · +{xp} XP',
+      'plus.linked': '지금 {n}장과 이어져 있어요',
+      'plus.why.mention': '글에서 서로를 언급해요',
+      'plus.why.tag': '같은 태그 {via}',
+      'plus.why.neighbor': '둘 다 "{via}"와 이어져 있어요',
+      'plus.why.random': '우연히 뽑힌 카드',
+      'plus.connect': '잇기',
+      'plus.reason': '왜 이어지나요? (비워도 돼요)',
+      'plus.connected': '이었어요! +{xp} XP',
+      'plus.connectFail': '노트가 방금 바뀌었거나 이미 이어져 있어요',
+      'plus.reshuffle': '다른 카드 보기',
+      'plus.noCands': '이을 만한 카드를 못 찾았어요',
+      'tame.ask': '이 카드와 이어진 카드는?',
+      'plus.summary': '{total}장을 다시 보고 {links}줄을 이었어요 · +{xp} XP',
       'plus.tidyTitle': '링크 정리',
       'plus.tidyEmpty': '링크로 이을 곳이 없어요. 깔끔해요!',
       'plus.tidyIntro': '다른 노트의 제목이 나오는데 링크가 아닌 곳이에요. 누른 것만 바꿔요.',
@@ -40467,7 +40430,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '물방울 고양이', 'stage.tide2': '파도 물방울', 'stage.tide3': '해룡 물방울',
       'stage.gear': '톱니 고양이', 'stage.gear2': '태엽 톱니', 'stage.gear3': '강철 톱니',
       'stage.dragon': '아기용 고양이', 'stage.dragon2': '날개 아기용', 'stage.dragon3': '화룡',
-      'need.links': '링크', 'need.correct': '맞힌 문제', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
+      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
       'home.toNextAny': '<b>{stage}</b>까지: {list}',
       'cats.title': '고양이 도감',
       'cats.sub': '데려온 고양이는 저마다 따로 자라요. 데려온 고양이만 경험치를 받아요',
@@ -40480,7 +40443,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': '처음 보는 고양이예요. 조심스럽게 다가가 볼까요?',
       'tame.noFood': '줄 먹이가 없어요. 상점에서 먹이나 간식을 사 오세요',
       'tame.pickFood': '먹이를 하나 내밀어 보세요',
-      'tame.ate': '{food}을(를) 먹었어요. 이제 이 고양이가 글자를 물어 갔어요!',
+      'tame.ate': '{food}을(를) 먹고는 카드 상자를 빤히 봐요',
       'tame.q': '문제 {i}/{total}',
       'tame.mood0': '아직 경계하고 있어요…',
       'tame.mood1': '귀가 조금 풀렸어요',
@@ -40505,35 +40468,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     en: {
       'stage.cat2': 'Scholar Cat',
       'stage.cat3': 'Sage Cat',
-      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · correct {correct}/{needCorrect}',
-      'quest.review': 'Review {n} cards',
+      'home.toNextPlus': 'To <b>{stage}</b>: Lv.{lv}/{needLv} · links {links}/{needLinks} · connections {correct}/{needCorrect}',
+      'quest.review': 'Revisit {n} old cards',
       'quest.tidy': 'Tidy {n} links',
-      'skill.review.how': 'Pick "Start review" in the command palette, or click the cat\'s bubble',
+      'skill.review.how': 'Pick "Connect cards" in the command palette or click the bubble. Revisit an old card and link it to another',
       'skill.tidy.how': 'Pick "Tidy links" in the command palette to turn plain mentions of note titles into [[links]]',
-      'bonus.review': 'Review',
+      'bonus.review': 'Connecting cards',
       'bonus.tidy': 'Tidy link: {target}',
-      'pet.linkReview': 'Click to review',
+      'pet.linkReview': 'Click to connect cards',
       'pet.linkTidy': 'Click to see',
-      'plus.trayReview': 'Review ({n})',
+      'plus.trayReview': 'Connect cards ({n})',
       'plus.trayTidy': 'Tidy links ({n})',
-      'plus.cmdReview': 'Start review',
+      'plus.cmdReview': 'Connect cards',
       'plus.cmdTidy': 'Tidy links',
-      'plus.reviewTitle': 'Review {i}/{total}',
-      'plus.reviewEmpty': 'Nothing to review today. See you tomorrow!',
-      'plus.reviewFrom': '{name} ate the title. Which note is this?',
-      'plus.placeholder': 'Note title (any part works)',
-      'plus.submit': 'Check',
-      'plus.hint': 'Sniff (1 snack · {n} left)',
-      'plus.noSnack': 'No snacks left. Buy some in the shop',
-      'plus.hintShown': 'It starts with “{c}”',
-      'plus.right': 'Right! +{xp} XP',
-      'plus.wrong': 'That’s okay! It was {answer}. You’ll see it again tomorrow',
-      'plus.close': 'Almost. It was {answer} — count it as right?',
-      'plus.markRight': 'Count as right',
-      'plus.markWrong': 'Count as wrong',
+      'plus.reviewTitle': 'Connect {i}/{total}',
+      'plus.reviewEmpty': 'No cards to revisit today. See you tomorrow!',
+      'plus.reviewFrom': '{name} brought back an old card. What does it connect to?',
       'plus.next': 'Next',
       'plus.open': 'Open note',
-      'plus.summary': '{right}/{total} right · +{xp} XP',
+      'plus.linked': 'Linked with {n} cards now',
+      'plus.why.mention': 'One mentions the other',
+      'plus.why.tag': 'Shared tag {via}',
+      'plus.why.neighbor': 'Both link to "{via}"',
+      'plus.why.random': 'A chance draw',
+      'plus.connect': 'Connect',
+      'plus.reason': 'Why are they related? (optional)',
+      'plus.connected': 'Connected! +{xp} XP',
+      'plus.connectFail': 'The note just changed or is already linked',
+      'plus.reshuffle': 'Show other cards',
+      'plus.noCands': 'No cards to suggest',
+      'tame.ask': 'Which card is linked to this one?',
+      'plus.summary': 'Revisited {total} · {links} new links · +{xp} XP',
       'plus.tidyTitle': 'Tidy links',
       'plus.tidyEmpty': 'Nothing to link. All tidy!',
       'plus.tidyIntro': 'Another note’s title appears here without a link. Only the ones you click change.',
@@ -40555,7 +40520,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Droplet cat', 'stage.tide2': 'Wave droplet', 'stage.tide3': 'Sea dragon',
       'stage.gear': 'Gear cat', 'stage.gear2': 'Clockwork gear', 'stage.gear3': 'Mecha gear',
       'stage.dragon': 'Dragonling cat', 'stage.dragon2': 'Winged dragonling', 'stage.dragon3': 'Fire dragon',
-      'need.links': 'links', 'need.correct': 'correct', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
+      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
       'home.toNextAny': 'To <b>{stage}</b>: {list}',
       'cats.title': 'Cat catalog',
       'cats.sub': 'Every cat grows on its own. Only the cat with you earns XP',
@@ -40568,7 +40533,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': 'A cat you have never seen. Approach slowly?',
       'tame.noFood': 'You have no food to offer. Buy a meal or snack in the shop',
       'tame.pickFood': 'Hold out something to eat',
-      'tame.ate': 'It ate the {food}. Now it has run off with some words!',
+      'tame.ate': 'It ate the {food} and is now eyeing your card box',
       'tame.q': 'Question {i}/{total}',
       'tame.mood0': 'Still on guard…',
       'tame.mood1': 'Its ears relax a little',
@@ -40593,35 +40558,37 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     zh: {
       'stage.cat2': '學習貓',
       'stage.cat3': '賢者貓',
-      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 答對 {correct}/{needCorrect}',
-      'quest.review': '複習 {n} 張卡片',
+      'home.toNextPlus': '距 <b>{stage}</b>：Lv.{lv}/{needLv} · 連結 {links}/{needLinks} · 串連 {correct}/{needCorrect}',
+      'quest.review': '拜訪 {n} 張舊卡片',
       'quest.tidy': '整理 {n} 處連結',
-      'skill.review.how': '在命令面板選「開始複習」，或點貓咪的對話泡泡來複習',
+      'skill.review.how': '在命令面板選「串連卡片」，或點貓咪的對話泡泡。重看一張舊卡，想想它能跟誰連起來',
       'skill.tidy.how': '在命令面板選「整理連結」，把直接寫出筆記標題的地方變成 [[連結]]',
-      'bonus.review': '複習',
+      'bonus.review': '串連卡片',
       'bonus.tidy': '整理連結：{target}',
-      'pet.linkReview': '點我開始複習',
+      'pet.linkReview': '點我開始串連',
       'pet.linkTidy': '點我看看',
-      'plus.trayReview': '複習（{n}）',
+      'plus.trayReview': '串連卡片（{n}）',
       'plus.trayTidy': '整理連結（{n}）',
-      'plus.cmdReview': '開始複習',
+      'plus.cmdReview': '串連卡片',
       'plus.cmdTidy': '整理連結',
-      'plus.reviewTitle': '複習 {i}/{total}',
-      'plus.reviewEmpty': '今天沒有要複習的卡片，明天再來！',
-      'plus.reviewFrom': '{name}把標題吃掉了，這是哪篇筆記？',
-      'plus.placeholder': '筆記標題（中文、英文或縮寫都可以）',
-      'plus.submit': '確認',
-      'plus.hint': '嗅覺（用掉 1 個零食 · 還有 {n} 個）',
-      'plus.noSnack': '沒有零食了，去商店買一些吧',
-      'plus.hintShown': '第一個字是「{c}」',
-      'plus.right': '答對了！+{xp} XP',
-      'plus.wrong': '沒關係！答案是 {answer}，明天再見它一次',
-      'plus.close': '差一點！答案是 {answer}，要算你對嗎？',
-      'plus.markRight': '算我對',
-      'plus.markWrong': '算我錯',
-      'plus.next': '下一題',
+      'plus.reviewTitle': '串連 {i}/{total}',
+      'plus.reviewEmpty': '今天沒有要拜訪的卡片，明天再來！',
+      'plus.reviewFrom': '{name}叼來一張舊卡片。它能跟哪張卡連起來？',
+      'plus.next': '下一張',
       'plus.open': '開啟筆記',
-      'plus.summary': '答對 {right}/{total} · +{xp} XP',
+      'plus.linked': '目前連著 {n} 張卡',
+      'plus.why.mention': '內文提到了對方',
+      'plus.why.tag': '共同標籤 {via}',
+      'plus.why.neighbor': '都連著「{via}」',
+      'plus.why.random': '隨機抽到的卡',
+      'plus.connect': '連起來',
+      'plus.reason': '為什麼相關？（可留空）',
+      'plus.connected': '連起來了！+{xp} XP',
+      'plus.connectFail': '筆記剛被改過，或已經連結了',
+      'plus.reshuffle': '換一批',
+      'plus.noCands': '找不到可以推薦的卡片',
+      'tame.ask': '哪一張卡跟它連在一起？',
+      'plus.summary': '拜訪 {total} 張 · 牽了 {links} 條線 · +{xp} XP',
       'plus.tidyTitle': '整理連結',
       'plus.tidyEmpty': '沒有可以連起來的地方，很整齊！',
       'plus.tidyIntro': '這些地方提到了其他筆記的標題，但還不是連結。只會改你按下的那一筆。',
@@ -40643,7 +40610,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '水滴貓', 'stage.tide2': '浪花水滴貓', 'stage.tide3': '海龍水滴貓',
       'stage.gear': '齒輪貓', 'stage.gear2': '發條齒輪貓', 'stage.gear3': '機甲齒輪貓',
       'stage.dragon': '幼龍貓', 'stage.dragon2': '飛翼幼龍貓', 'stage.dragon3': '炎龍貓',
-      'need.links': '連結', 'need.correct': '答對', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
+      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
       'home.toNextAny': '距 <b>{stage}</b>：{list}',
       'cats.title': '貓咪圖鑑',
       'cats.sub': '每隻貓各自成長，只有帶在身邊的那隻會拿到經驗值',
@@ -40656,7 +40623,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'tame.intro': '一隻沒見過的貓。要慢慢靠近牠嗎？',
       'tame.noFood': '沒有可以給牠的食物，去商店買點正餐或零食吧',
       'tame.pickFood': '拿一樣吃的給牠',
-      'tame.ate': '牠吃了{food}，然後叼走了幾個字！',
+      'tame.ate': '牠吃了{food}，然後盯著你的卡片盒看',
       'tame.q': '第 {i}/{total} 題',
       'tame.mood0': '牠還很警戒…',
       'tame.mood1': '牠的耳朵放鬆了一點',

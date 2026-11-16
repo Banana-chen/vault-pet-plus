@@ -1,13 +1,12 @@
 'use strict';
-// [Plus] 길들이기 창: 먹이 하나 주기 → 복습 문제 셋 → (안 보이는) 주사위 → 이름 짓기.
+// [Plus] 길들이기 창: 먹이 하나 주기 → 이웃 문제 셋 (이 카드와 이어진 카드 고르기) → (안 보이는) 주사위 → 이름 짓기.
 // 확률은 보여 주지 않고, 맞힐 때마다 "조금 편해 보인다" 같은 말만 한다. 먹이를 준 뒤 창을 닫으면 달아난다
 const { Modal, Setting, Notice } = require('obsidian');
-const { grade } = require('../core/review');
 const { tameChance } = require('../core/collection');
 const { breedOf } = require('../core/breeds');
 const { FOODS } = require('../core/shop');
 const { ModalCat } = require('./plus-cat');
-const { drawQuestion, giveBack } = require('./plus-modals');
+const { drawCard } = require('./plus-modals');
 
 const QUESTIONS = 3;
 
@@ -83,39 +82,28 @@ class TameModal extends Modal {
   renderQuestion(text) {
     const c = this.cards[this.i];
     const el = this.head(text || this.t('tame.mood' + Math.min(this.correct, 3)));
-    el.createEl('p', { cls: 'setting-item-description', text: this.t('tame.q', { i: this.i + 1, total: this.cards.length }) });
-    this.qEl = drawQuestion(el, c);
-    const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
-    new Setting(el).addButton((b) => b.setButtonText(this.t('plus.submit')).setCta().onClick(() => this.check(input.value)));
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      this.check(input.value);
-    });
-    input.focus();
+    el.createEl('p', { cls: 'setting-item-description', text: `${this.t('tame.q', { i: this.i + 1, total: this.cards.length })} · ${this.t('tame.ask')}` });
+    drawCard(el, c);
+    const opts = el.createDiv({ cls: 'vpp-opts' });
+    for (const o of c.options) {
+      const b = opts.createEl('button', { text: o.title });
+      b.dataset.path = o.path;
+      b.addEventListener('click', () => this.settle(o.path === c.answer ? 'right' : 'wrong', opts));
+    }
   }
 
-  check(value) {
-    const c = this.cards[this.i];
-    const g = grade(value, c.answers, c.loose);
-    if (g !== 'close') return this.settle(g);
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
-    el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
-    new Setting(el)
-      .addButton((b) => b.setButtonText(this.t('plus.markWrong')).onClick(() => this.settle('wrong')))
-      .addButton((b) => b.setButtonText(this.t('plus.markRight')).setCta().onClick(() => this.settle('right')));
-  }
-
-  settle(result) {
+  settle(result, opts) {
     const c = this.cards[this.i];
     this.plugin.plus.practice(result);
     if (result === 'right') this.correct++;
-    giveBack(this.qEl, c.kind === 'title' ? [c.answers[0], ...c.bites] : c.bites, result);
+    opts.querySelectorAll('button').forEach((b) => {
+      b.disabled = true;
+      if (b.dataset.path === c.answer) b.addClass('vpp-answer');
+    });
     this.cat.act(result);
+    const answer = (c.options.find((o) => o.path === c.answer) || {}).title || '';
     const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
-    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? this.t('tame.right') : this.t('tame.wrong', { answer: c.answers[0] }) });
+    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? this.t('tame.right') : this.t('tame.wrong', { answer }) });
     this.i++;
     const last = this.i >= this.cards.length;
     new Setting(el).addButton((b) => {

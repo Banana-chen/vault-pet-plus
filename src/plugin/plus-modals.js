@@ -1,31 +1,17 @@
 'use strict';
-// [Plus] 복습 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
+// [Plus] 카드 잇기 창 · 링크 정리 창 (옵시디언 모달). 노트 글은 setText 로만 넣는다 (HTML 로 그리지 않는다)
 const { Modal, Setting, Notice } = require('obsidian');
-const { grade, BLANK } = require('../core/review');
 const { ModalCat } = require('./plus-cat');
 
-const firstChar = (answers) => [...(answers[1] || answers[0])][0] || '';
-
-// 문제 글. 빈칸은 고양이가 베어 문 자국(.vpp-bite)으로, 글은 setText 로만 넣는다.
-// 제목 카드는 첫 단락에 제목이 안 나와도 먹힌 게 보이게, 맨 위에 먹힌 제목 줄을 둔다
-function drawQuestion(parent, c) {
+// 카드 한 장: 제목과 첫 단락 (가리지 않는다). 글은 setText 로만 넣는다
+function drawCard(parent, c) {
   const box = parent.createDiv({ cls: 'vpp-question' });
-  if (c.kind === 'title') box.createDiv({ cls: 'vpp-title' }).createSpan({ cls: 'vpp-bite', text: BLANK });
-  c.question.split(BLANK).forEach((part, i) => {
-    if (i) box.createSpan({ cls: 'vpp-bite', text: BLANK }).style.setProperty('animation-delay', `${0.15 * i}s`);
-    if (part) box.appendText(part);
-  });
+  box.createDiv({ cls: 'vpp-title', text: c.title });
+  if (c.question) box.appendText(c.question);
   return box;
 }
 
-// 답을 보여 줄 때 먹은 글자를 제자리에 뱉어 놓는다
-function giveBack(box, bites, result) {
-  box.querySelectorAll('.vpp-bite').forEach((el, i) => {
-    el.setText(bites[i] || '');
-    el.addClass(result === 'right' ? 'vpp-spit' : 'vpp-reveal');
-  });
-}
-
+// 카드 잇기: 옛 카드를 다시 보고, 이을 만한 카드 중에 고르고 이유를 적어 잇는다. 맞고 틀림이 없다
 class ReviewModal extends Modal {
   constructor(app, plugin, cards) {
     super(app);
@@ -33,7 +19,7 @@ class ReviewModal extends Modal {
     this.plus = plugin.plus;
     this.cards = cards;
     this.i = 0;
-    this.right = 0;
+    this.links = 0;
     this.xp = 0;
   }
 
@@ -43,7 +29,6 @@ class ReviewModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass('vpp-modal');
-    // 저전력이면 고양이 · 빈칸 움직임을 다 끈다
     this.modalEl.toggleClass('vpp-still', !!this.plugin.settings.get('lowPower'));
     this.render();
   }
@@ -51,13 +36,12 @@ class ReviewModal extends Modal {
   onClose() {
     if (this.cat) this.cat.destroy();
     this.contentEl.empty();
-    this.plus.finish(this.right, this.i);
+    this.plus.finish(this.links, this.i);
   }
 
   render() {
     const el = this.contentEl;
     el.empty();
-    this.hinted = false;
     if (this.cat) this.cat.destroy();
     this.cat = null;
     if (!this.cards.length) {
@@ -66,78 +50,86 @@ class ReviewModal extends Modal {
       return;
     }
     if (this.i >= this.cards.length) {
-      el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { right: this.right, total: this.cards.length, xp: this.xp }) });
+      this.titleEl.setText(this.t('plus.cmdReview'));
+      el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { total: this.cards.length, links: this.links, xp: this.xp }) });
       new Setting(el).addButton((b) => b.setButtonText('OK').setCta().onClick(() => this.close()));
       return;
     }
     const c = this.cards[this.i];
+    this.shown = c.candidates.map((x) => x.path);
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
     const stage = el.createDiv({ cls: 'vpp-stage' });
     this.cat = new ModalCat(this.plugin, stage);
-    this.cat.act('bite');
     stage.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reviewFrom', { name: this.plugin.settings.get('petName') }) });
-    this.qEl = drawQuestion(el, c);
-    const hintEl = el.createEl('p', { cls: 'vpp-hint' });
-    const input = el.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.placeholder') } });
-    const row = new Setting(el);
-    const snacks = this.plus.snackCount();
-    row.addButton((b) => {
-      b.setButtonText(snacks ? this.t('plus.hint', { n: snacks }) : this.t('plus.noSnack')).setDisabled(!snacks);
-      b.onClick(() => {
-        if (this.hinted || !this.plus.hint()) return;
-        this.hinted = true;
-        this.cat.act('hint');
-        hintEl.setText(this.t('plus.hintShown', { c: firstChar(c.answers) }));
-        b.setDisabled(true);
-        input.focus();
-      });
-    });
-    row.addButton((b) => b.setButtonText(this.t('plus.submit')).setCta().onClick(() => this.check(input.value)));
-    // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 답이 아니다
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      this.check(input.value);
-    });
-    input.focus();
-  }
-
-  check(value) {
-    const c = this.cards[this.i];
-    const g = grade(value, c.answers, c.loose);
-    if (g !== 'close') return this.settle(g);
-    this.cat.act('close');
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input').forEach((x) => x.remove());
-    el.createEl('p', { cls: 'vpp-result', text: this.t('plus.close', { answer: c.answers[0] }) });
-    new Setting(el)
-      .addButton((b) => b.setButtonText(this.t('plus.markWrong')).onClick(() => this.settle('wrong')))
-      .addButton((b) => b.setButtonText(this.t('plus.markRight')).setCta().onClick(() => this.settle('right')));
-  }
-
-  settle(result) {
-    const c = this.cards[this.i];
-    const xp = this.plus.answer(c.key, result, this.hinted);
-    if (result === 'right') this.right++;
-    this.xp += xp;
-    giveBack(this.qEl, c.kind === 'title' ? [c.answers[0], ...c.bites] : c.bites, result);
-    this.cat.act(result);
-    const el = this.contentEl;
-    el.querySelectorAll('.setting-item, .vpp-input, .vpp-result').forEach((x) => x.remove());
-    el.createEl('p', { cls: `vpp-result vpp-${result}`, text: result === 'right' ? `${this.t('plus.right', { xp })} · ${c.answers[0]}` : this.t('plus.wrong', { answer: c.answers[0] }) });
-    this.i++;
-    const next = () => this.render();
+    drawCard(el, c);
+    el.createEl('p', { cls: 'vpp-why', text: this.t('plus.linked', { n: c.linked }) });
+    this.listEl = el.createDiv();
+    this.drawCandidates(c, c.candidates);
     new Setting(el)
       .addButton((b) =>
         b.setButtonText(this.t('plus.open')).onClick(() => {
+          this.plus.visit(c.key);
+          this.i++;
           this.close();
           this.app.workspace.openLinkText(c.path, '', false);
         }),
       )
-      .addButton((b) => {
-        b.setButtonText(this.t('plus.next')).setCta().onClick(next);
-        window.setTimeout(() => b.buttonEl.focus(), 0);
-      });
+      .addButton((b) =>
+        b.setButtonText(this.t('plus.reshuffle')).onClick(() => {
+          const more = c.more(this.shown);
+          this.shown.push(...more.map((x) => x.path));
+          this.drawCandidates(c, more);
+        }),
+      )
+      .addButton((b) =>
+        b.setButtonText(this.t('plus.next')).setCta().onClick(() => {
+          this.plus.visit(c.key);
+          this.i++;
+          this.render();
+        }),
+      );
+  }
+
+  drawCandidates(c, list) {
+    const el = this.listEl;
+    el.empty();
+    if (!list.length) el.createEl('p', { cls: 'vpp-why', text: this.t('plus.noCands') });
+    for (const o of list) {
+      const box = el.createDiv({ cls: 'vpp-tidy vpp-cand' });
+      box.createEl('b', { text: o.title });
+      box.createDiv({ cls: 'vpp-why', text: this.t('plus.why.' + o.why, { via: o.via }) });
+      if (o.excerpt) box.createDiv({ cls: 'vpp-excerpt', text: o.excerpt });
+      const row = new Setting(box);
+      row.addButton((b) => b.setButtonText(this.t('plus.connect')).onClick(() => this.askReason(c, o, box, row)));
+    }
+  }
+
+  // 왜 이어지는지 한 줄 (비워도 된다). 이유를 적는 것이 이 복습의 알맹이다
+  askReason(c, o, box, row) {
+    row.settingEl.remove();
+    const input = box.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.reason') } });
+    const go = async () => {
+      input.disabled = true;
+      const xp = await this.plus.connect(c.path, o.title, input.value);
+      input.remove();
+      act.settingEl.remove();
+      if (xp === null) {
+        box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.connectFail') });
+        return;
+      }
+      this.links++;
+      this.xp += xp;
+      if (this.cat) this.cat.act('right');
+      box.createEl('p', { cls: 'vpp-result vpp-right', text: this.t('plus.connected', { xp }) });
+    };
+    const act = new Setting(box).addButton((b) => b.setButtonText(this.t('plus.connect')).setCta().onClick(go));
+    // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 확인이 아니다
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      go();
+    });
+    input.focus();
   }
 }
 
@@ -190,4 +182,4 @@ class TidyModal extends Modal {
   }
 }
 
-module.exports = { ReviewModal, TidyModal, drawQuestion, giveBack };
+module.exports = { ReviewModal, TidyModal, drawCard };

@@ -482,7 +482,7 @@ class KitCommitPlugin extends Plugin {
       this.collect.dismissStray(); // 펫 판에 남은 길고양이도 내보낸다
       return new Notice(this.host.T.t('tame.gone'));
     }
-    new TameModal(this.app, this, stray, await this.plus.randomCards(3)).open();
+    new TameModal(this.app, this, stray, await this.plus.neighborCards(3)).open();
   }
 
   openTidy() {
