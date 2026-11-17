@@ -16,29 +16,22 @@ Plus treats every note as a card in a Zettelkasten (a slip box of linked notes).
 
 ### Connect cards
 
-Open **Connect cards** from the command palette, the status bar menu or your cat's right-click menu (**Connect cards (3)** shows how many are due). Once a day, when you pause, your cat also reminds you in a bubble.
+Open **Connect cards** from the command palette, the status bar menu or your cat's right-click menu. Your cat also reminds you once a day when old cards are waiting.
 
-- Your cat brings back an old card (its title and the start of its first paragraph) with four cards it might connect to: usually two related ones (one mentions the other, they share a tag, or both are linked with the same note) and two drawn at random. Cards already linked with it are left out. **Show other cards** draws a new set.
-- To connect, write **one line on why** they're related. The line is required, because the reason is the part worth having. Pressing **Connect** adds `- [[Other card]]：your reason` to the end of the note.
-- There's no right or wrong. Once you press **Next** or **Open note** (or close the window after connecting it), linked or not, the card comes back later: after 2, then 4, then 8 days, then every 16 days. Up to 10 cards a day, and a new note joins from the next day.
-- Cards with the fewest links come up first, so orphan notes get a turn before well-connected ones.
-- Your own cat sits in the window, in its current costume and form, and cheers each time you connect.
-- Each new link earns 20 XP, and revisiting old cards can come up as a daily quest.
+- Your cat brings back an old card with a few cards it might connect to: some related, some drawn at random. **Show other cards** draws a new set.
+- To connect, write **one line on why** they're related. The reason is required, because it's the part worth having. Plus adds `- [[Other card]]：your reason` to the end of the note.
+- There's no right or wrong. Linked or not, the card comes back a few days later, and cards with the fewest links come up first.
 
 ### Tidy links
 
-**Tidy links** finds places where a note's title appears as plain text and offers to turn each one into a link (`[[Title]]`, or `[[Title|your text]]` when you wrote it differently). You see the before and after, and only the ones you press are changed. It's in the status bar and right-click menus too, each link you tidy earns 20 XP, and tidying can come up as a daily quest.
+**Tidy links** finds places where a note's title appears as plain text and offers to turn each one into a link. You see the before and after, and only the ones you press are changed.
 
 ### Meet, tame and evolve cats
 
-- **A stranger cat** sometimes comes to visit for 15 minutes, brought by writing habits (streaks, late nights, weekends, several notes in a day, a long note, lots of characters, links in your vault, tidied links, connections, clearing the day's quests) or plain luck. Click it to approach.
-- **Taming:** offer it food from the shop (pricier food helps a little), then answer up to three questions. Each right answer earns 15 XP and makes taming likelier, but it's never certain. Close the window after feeding and it runs away.
-- **Questions come from your reasons:** each shows a reason you wrote while connecting cards and asks which card you linked for it, so a link with real thought behind it is one you can answer later. When there aren't enough, the question asks which card is linked to the one shown instead.
-- Tamed cats go into the **Cat catalog** in the house: the ones you've tamed in color, the ones you've only met as silhouettes. It never says how many there are; some breeds are rarer than others.
-- **Bring along** any tamed cat at any time. Each one keeps its own level and grows on its own; only the cat with you earns XP.
-- **Evolution** needs a level plus the habits that breed likes: characters written, links in the vault, nights or days you wrote, or connections. The Home shows what the next form still needs.
-- **Each form is a new look,** not just a bigger cat: a new outline and tail, and things like wings, halos or extra tails. The third form's fur sparkles (unless the fur color is already animated), and the second and third forms have motions of their own. A cat never goes back a form, even if you later delete links.
-- **Connections** count once per card each time you revisit it and connect it with a reason, so linking more cards at once doesn't add more. Right answers while taming count too.
+- Now and then, your writing habits bring **a stranger cat** to visit. Click it to approach.
+- **Taming:** offer it food from the shop, then answer a few questions. Most show a reason you wrote while connecting cards and ask which card you linked for it. The more you get right, the likelier it stays.
+- Tamed cats go into the **Cat catalog**. **Bring along** any of them at any time; each grows on its own.
+- **Evolution** needs a level plus the habits that breed likes. The Home shows what the next form needs, and each form is a whole new look.
 
 ### Also in Plus
 
@@ -46,7 +39,7 @@ Open **Connect cards** from the command palette, the status bar menu or your cat
 
 ### Coming from Vault Pet
 
-On first run, if Plus has no data of its own yet, it copies your whole Vault Pet save (level, coins, costumes, badges, to-dos and note records) and turns the original plugin off, so the two don't both count your writing.
+On first run, Plus copies your Vault Pet save and turns the original plugin off, so the two don't both count your writing.
 
 ## Why you'll love it
 
@@ -120,21 +113,11 @@ Clicks on the empty parts of the floor pass straight through to Obsidian, so you
 
 ## How it grows
 
-```
-XP    = characters ÷ 10 + links × 10 + new notes × 20 + writing sessions × 30 + finished tasks × 5 + bonuses
-Level = √(XP / 25) + 1, up to Lv.80
-Stars = after Lv.80, one star for every 2,000 XP (each star also pays 500 coins)
-```
+Your cat earns XP from what you write: new characters, links, new notes, coming back to write after a break, and tasks you check off. Daily goals, focus sessions, quests, badges and your check-in streak add bonuses, and with Plus so do connecting cards, tidying links and taming.
 
-- **Characters**: new text, not counting spaces, Markdown symbols, URLs or frontmatter. Code counts too.
-- **Links**: `[[wikilinks]]`, `![[embeds]]` and `[markdown](links)`.
-- **New notes**: each note counts once, after its first 10 characters.
-- **Writing sessions**: starting to write again after a break of 30+ minutes.
-- **Finished tasks**: each `- [ ]` you check off. Unchecking and checking again only counts once.
-- **Bonuses**: your daily goal (+50 XP), focus sessions (+1 XP a minute), daily quests, badges and your daily check-in streak. Long streaks also pay coins at 30, 50, 100, 200 and 365 days.
-- **Habits** (for quests and badges, not XP on their own): tags, headings, properties, embeds and callouts you add, characters written in your daily note (it follows the core Daily notes folder and date format), notes you move or rename, orphan notes you link, Home to-dos you finish, and Obsidian panes you open (graph, local graph, search, backlinks, outgoing links, outline, tags, bookmarks).
-
-Growth starts on the day you install. Vault Pet takes one quick look at your vault to remember how long each note already is, so writing you did before doesn't count (the welcome screen shows, just for fun, what level you'd be if it did).
+- Levels go up to Lv.80. After that, your writing earns stars for the star shop.
+- Only new writing counts, from the day you install. Notes you already had, pasted text and restored notes don't.
+- With Plus, each cat has its own level. A cat you tame starts at Lv.1 and grows while it's with you, and nothing you've unlocked locks again.
 
 ## Coins and the shop
 
