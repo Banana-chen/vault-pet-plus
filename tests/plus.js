@@ -148,6 +148,28 @@ test('reasonQuiz: 이유를 적은 링크로만 문제를 내고, 정답은 그 
   assert.ok(q.options.every((o) => o.path !== 'Kafka.md'));
 });
 
+test('reasonQuiz: 같은 제목이 두 폴더에 있으면 실제로 이어진 쪽이 정답 (Obsidian 이 고른 링크)', () => {
+  const at = (p, text) => ({ path: p, title: p.split('/').pop().replace(/\.md$/, ''), text, tags: [] });
+  const box = [at('a/Kafka.md', '- [[背壓]]：慢消費者'), at('x/背壓.md', 'x'), at('y/背壓.md', 'y'), ...['b', 'c', 'd', 'e'].map((t) => at(t + '.md', t))];
+  const nb = connect.neighborsOf({ 'a/Kafka.md': { 'x/背壓.md': 1 } });
+  for (let i = 0; i < 20; i++) {
+    const [q] = connect.reasonQuiz(box, nb, Math.random, 1);
+    assert.strictEqual(q.answer, 'x/背壓.md');
+    assert.ok(!q.options.some((o) => o.path === 'y/背壓.md'), '같은 제목의 다른 카드는 보기에 넣지 않는다');
+  }
+  // 경로로 적은 링크 [[y/背壓]] 도 그 경로의 카드가 정답
+  box[0] = at('a/Kafka.md', '- [[y/背壓]]：路徑連結');
+  const nbY = connect.neighborsOf({ 'a/Kafka.md': { 'y/背壓.md': 1 } });
+  assert.strictEqual(connect.reasonQuiz(box, nbY, Math.random, 1)[0].answer, 'y/背壓.md');
+});
+
+test('reasonsOf: 반각 콜론 · 별칭 · 제목 링크도 읽고, 이유가 빈 줄은 뺀다', () => {
+  assert.deepStrictEqual(connect.reasonsOf('- [[背壓|bp]]: 原因\n- [[背壓#h]]：r2\n- [[空]]：  \n- [[無]]'), [
+    { target: '背壓', reason: '原因' },
+    { target: '背壓', reason: 'r2' },
+  ]);
+});
+
 test('appendLink: 노트 끝에 링크와 이유 한 줄, 이미 이어져 있으면 null, 링크 목록 뒤에는 바로 붙인다', () => {
   assert.strictEqual(connect.appendLink('본문\n', '背壓', '都在談流量控制'), '본문\n\n- [[背壓]]：都在談流量控制\n');
   assert.strictEqual(connect.appendLink('본문\n\n- [[背壓]]：a\n', 'Kafka', ''), '본문\n\n- [[背壓]]：a\n- [[Kafka]]\n');

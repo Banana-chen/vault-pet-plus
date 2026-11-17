@@ -68,19 +68,22 @@ function reasonsOf(text) {
 
 // 길들이기 문제: 내가 적은 이유를 보여 주고, 이 카드가 그 이유로 이은 카드를 고른다.
 // 이유 없는 링크는 문제가 안 된다 — 대충 이은 링크로는 길들이기에 도움이 안 된다
+// 정답은 제목이 같고 실제로 이어진 카드 (같은 제목이 여러 폴더에 있어도 옵시디언이 고른 쪽). 못 찾으면 문제를 내지 않는다
 function reasonQuiz(notes, nb, rand = Math.random, n = 3, size = 4) {
-  const byTitle = new Map(notes.map((x) => [x.title, x]));
-  const pool = notes.flatMap((note) => reasonsOf(note.text).filter((r) => byTitle.has(r.target) && r.target !== note.title).map((r) => ({ note, ...r })));
+  // [[폴더/제목]] 처럼 경로로 적은 링크는 끝 이름으로 찾는다 (어느 쪽인지는 실제 링크가 정한다)
+  const nameOf = (target) => target.split('/').pop();
+  const pool = notes.flatMap((note) => reasonsOf(note.text).filter((r) => nameOf(r.target) !== note.title).map((r) => ({ note, ...r })));
   const out = [];
   for (const { note, target, reason } of shuffle(pool, rand)) {
     if (out.length >= n) break;
     if (out.some((q) => q.path === note.path)) continue;
+    const name = nameOf(target);
     const near = nb[note.path] || new Set();
-    const far = notes.filter((o) => o.path !== note.path && o.title !== target && !near.has(o.path));
-    if (far.length < size - 1) continue;
-    const answer = byTitle.get(target).path;
-    const options = shuffle([byTitle.get(target), ...shuffle(far, rand).slice(0, size - 1)], rand).map((o) => ({ path: o.path, title: o.title }));
-    out.push({ path: note.path, title: note.title, question: reason, options, answer, kind: 'reason' });
+    const hit = notes.find((o) => o.title === name && near.has(o.path));
+    const far = notes.filter((o) => o.path !== note.path && o.title !== name && !near.has(o.path));
+    if (!hit || far.length < size - 1) continue;
+    const options = shuffle([hit, ...shuffle(far, rand).slice(0, size - 1)], rand).map((o) => ({ path: o.path, title: o.title }));
+    out.push({ path: note.path, title: note.title, question: reason, options, answer: hit.path, kind: 'reason' });
   }
   return out;
 }

@@ -36,7 +36,16 @@ class ReviewModal extends Modal {
   onClose() {
     if (this.cat) this.cat.destroy();
     this.contentEl.empty();
+    // 이어 놓고 '다음'을 안 누른 채 닫아도 그 카드는 본 것으로 (이은 것이 '이은 카드' 수에 들어가게)
+    if (this.linkedHere > 0 && this.i < this.cards.length) this.done(this.cards[this.i]);
     this.plus.finish(this.links, this.i);
+  }
+
+  // 카드 한 장을 다 봤다: 다음 상자로 · 이번에 이었으면 '이은 카드' +1
+  done(c) {
+    this.plus.visit(c.key, this.linkedHere);
+    this.linkedHere = 0;
+    this.i++;
   }
 
   render() {
@@ -69,8 +78,7 @@ class ReviewModal extends Modal {
     new Setting(el)
       .addButton((b) =>
         b.setButtonText(this.t('plus.open')).onClick(() => {
-          this.plus.visit(c.key, this.linkedHere);
-          this.i++;
+          this.done(c);
           this.close();
           this.app.workspace.openLinkText(c.path, '', false);
         }),
@@ -84,8 +92,7 @@ class ReviewModal extends Modal {
       )
       .addButton((b) =>
         b.setButtonText(this.t('plus.next')).setCta().onClick(() => {
-          this.plus.visit(c.key, this.linkedHere);
-          this.i++;
+          this.done(c);
           this.render();
         }),
       );

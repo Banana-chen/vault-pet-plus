@@ -99,7 +99,8 @@ class Plus {
     const notes = await this.syncDeck();
     const by = new Map(notes.map((n) => [n.path, n]));
     const nb = this.graph();
-    const degree = Object.fromEntries(Object.entries(nb).map(([p, set]) => [p, set.size]));
+    // 첨부(그림 등)는 이어진 카드로 치지 않는다
+    const degree = Object.fromEntries(Object.entries(nb).map(([p, set]) => [p, [...set].filter((x) => x.endsWith('.md')).length]));
     const out = dueToday(this.review().deck, dayNum(), this.doneToday(), DAILY_CAP, degree)
       .map((path) => by.get(path))
       .filter(Boolean)
