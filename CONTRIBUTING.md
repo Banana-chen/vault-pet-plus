@@ -6,8 +6,10 @@ the short version of what will make any of them go smoothly.
 ## Reporting a bug
 
 Open an issue at
-[github.com/elliott-json-park/obsidian-vault-pet/issues](https://github.com/elliott-json-park/obsidian-vault-pet/issues),
+[github.com/Banana-chen/vault-pet-plus/issues](https://github.com/Banana-chen/vault-pet-plus/issues),
 or press **Send feedback** in the plugin's settings, which opens the same page.
+For bugs that also happen in the original Vault Pet, use
+[its issues](https://github.com/elliott-json-park/obsidian-vault-pet/issues).
 
 The useful things are: your Obsidian version, your OS, the plugin version,
 what the cat or the house was doing, and what you did immediately before it
@@ -23,7 +25,8 @@ toys and quests that fit the cat's world are especially welcome as ideas.
 Three things are deliberately out of scope, so it saves time to say so:
 
 - **Anything that reaches the network.** The plugin makes no network requests
-  at all and only reads notes; see the Privacy section of the README.
+  at all, and only writes to a note when you press **Connect** or **Make it
+  a link**; see the Privacy section of the README.
 - **Ways to earn without writing.** Only real new writing counts — pasting,
   retyping and restoring deleted notes earn nothing. A change that lets them
   count will not be merged.

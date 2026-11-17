@@ -1,6 +1,8 @@
-# Vault Pet
+# Vault Pet Plus
 
 **A pixel cat that lives at the bottom of your vault, helps you build good note habits and grows every time you write.**
+
+> A personal fork of [Vault Pet](https://github.com/elliott-json-park/obsidian-vault-pet) by Elliott Park. It keeps everything Vault Pet does and adds **Connect cards** (revisit an old card and link it to another, with a reason), **Tidy links**, and more cats to meet, tame and evolve. See [What Plus adds](#what-plus-adds). The rest of this README describes the original plugin, with notes where Plus differs (installation, commands, privacy).
 
 ![A big pixel cat typing on a tiny laptop next to the headline "Write a little. Watch your cat grow.", with a daily word goal, focus sessions, finished tasks and 320 costumes listed beside it, and Mochi's status bar showing 231 of 300 words.](docs/listing/1-hero.png)
 
@@ -8,10 +10,40 @@ Vault Pet turns writing into a cozy little game with a goal you can see. A hand-
 
 ![Mochi the cat pulls out a tiny laptop and types along, a thought bubble over its head, while a paragraph of a novel is being written in the note above.](docs/typing.gif)
 
+## What Plus adds
+
+Plus treats every note as a card in a Zettelkasten (a slip box of linked notes). The point isn't to memorize your notes but to keep finding links between them, because new ideas come from cards that meet.
+
+### Connect cards
+
+Run **Connect cards** from the command palette, or click your cat's bubble when old cards are due.
+
+- Your cat brings back an old card (its title and the start of its first paragraph) with four cards it might connect to: usually two related ones (one mentions the other, they share a tag, or both are linked with the same note) and two drawn at random. Cards already linked with it are left out. **Show other cards** draws a new set.
+- To connect, write **one line on why** they're related. The line is required, because the reason is the part worth having. Pressing **Connect** adds `- [[Other card]]：your reason` to the end of the note.
+- There's no right or wrong. Once you press **Next** or **Open note** (or close the window after connecting it), linked or not, the card comes back later: after 2, then 4, then 8 days, then every 16 days. Up to 10 cards a day.
+- Cards with the fewest links come up first, so orphan notes get a turn before well-connected ones.
+
+### Tidy links
+
+**Tidy links** finds places where a note's title appears as plain text and offers to turn each one into a `[[link]]`. You see the before and after, and only the ones you press are changed.
+
+### Meet, tame and evolve cats
+
+- **A stranger cat** sometimes comes to visit for 15 minutes, brought by writing habits (streaks, late nights, weekends, several notes in a day, a long note, lots of characters, links in your vault, tidied links, connections, clearing the day's quests) or plain luck. Click it to approach.
+- **Taming:** offer it food from the shop (pricier food helps a little), then answer up to three questions. More right answers make taming likelier, but it's never certain. Close the window after feeding and it runs away.
+- **Questions come from your reasons:** each shows a reason you wrote while connecting cards and asks which card you linked for it, so a link with real thought behind it is one you can answer later. When there aren't enough, the question asks which card is linked to the one shown instead.
+- Tamed cats go into the **Cat catalog** in the house. Each breed has its own look and grows on its own; only the cat you bring along earns XP.
+- **Evolution** needs a level plus the habits that breed likes: characters written, links in the vault, nights or days you wrote, or connections.
+- **Connections** count once per card each time you revisit it and connect it with a reason, so linking more cards at once doesn't add more. Right answers while taming count too.
+
+### Coming from Vault Pet
+
+On first run, if Plus has no data of its own yet, it copies your whole Vault Pet save (level, coins, costumes, badges, to-dos and note records) and turns the original plugin off, so the two don't both count your writing.
+
 ## Why you'll love it
 
 - **A Home for getting things done.** Today's goal, a focus timer, a to-do list, today's quests, a note map and your recent notes, all on one screen. Reorder or hide sections with **Customize Home**, fold any section away, and it reads fine in the narrow right sidebar too.
-- **It never touches your notes.** The to-do list lives inside Vault Pet. Nothing on the Home creates, edits or deletes a note; it only opens notes that already exist.
+- **It only touches your notes when you ask.** The to-do list lives inside Vault Pet. Nothing on the Home creates, edits or deletes a note; it only opens notes that already exist. (Plus's **Connect cards** and **Tidy links** are the exception; see [Privacy](#privacy).)
 - **Quests that teach Obsidian.** Three a day: add a tag, write in your daily note, add a property, link an orphan note, move a note into a folder, open the graph view… Each one has a one-line "how" for first-timers.
 - **A daily goal you can see.** Pick a goal like 300 words (or 1,000 characters) a day. A small bar in the status bar fills as you write, and on days you reach it your cat celebrates and pays you 100 coins. Keep it going for a goal streak.
 - **Focus sessions with breaks.** Start a 15, 25 or 50 minute focus session from the Home, the status bar or the command palette. Your cat stops chatting, shows the time left above its head and cheers when you're done. Then take a 5 or 10 minute break and it calls you back.
@@ -23,7 +55,7 @@ Vault Pet turns writing into a cozy little game with a goal you can see. A hand-
 - **Neighbors and a treasure workshop.** Neighbor friends drop by now and then, your cat finds tiny treasures, and you craft costumes out of them. Not your thing? Turn either one off in Settings, and nothing you've collected is lost.
 - **It never runs out.** Levels stop at Lv.80, and from then on your writing earns stars for a shop of its own.
 - **It's fair.** Only real new writing counts. Deleting and retyping, undo, pasting or dragging text in, and restoring a deleted note earn nothing.
-- **It's private.** Your notes are only read, never stored or sent anywhere. No network access at all.
+- **It's private.** Your notes are never stored or sent anywhere. No network access at all.
 
 ## Home
 
@@ -158,13 +190,13 @@ Obsidian's own plugin settings for Vault Pet have the everyday switches too: sho
 
 ## Commands
 
-Start focus session · Stop focus session · Show today's goal · Open house · Open house in the right sidebar · Show today's quests · Open shop · Open wardrobe · Feed · Pet the cat · Toggle sound (mute) · Toggle quiet mode (1 hour) · Show or hide the cat · Hide the cat for 1 hour · Reset cat position · Stop playing
+Start focus session · Stop focus session · Show today's goal · Open house · Open house in the right sidebar · Show today's quests · Open shop · Open wardrobe · Feed · Pet the cat · Toggle sound (mute) · Toggle quiet mode (1 hour) · Show or hide the cat · Hide the cat for 1 hour · Reset cat position · Stop playing · Connect cards (Plus) · Tidy links (Plus)
 
 ## Installation
 
-**Community plugins:** in Obsidian, open **Settings → Community plugins → Browse**, search for **Vault Pet** and install it.
+Vault Pet Plus isn't in the Community plugins list. Copy `main.js`, `manifest.json` and `styles.css` from this repository into `<your vault>/.obsidian/plugins/vault-pet-plus/`, then enable **Vault Pet Plus** under **Settings → Community plugins**. To build them yourself, run `node scripts/build.js` (Node only, no dependencies).
 
-**Manual:** download `main.js`, `manifest.json` and `styles.css` from the [latest release](../../releases/latest) into `<your vault>/.obsidian/plugins/vault-pet/`, then enable **Vault Pet** under Community plugins.
+The original plugin is in Community plugins as **Vault Pet**. You don't need both: Plus turns it off on first run (see [Coming from Vault Pet](#coming-from-vault-pet)).
 
 **Optional font:** for the exact look, also copy the `fonts/` folder (Pretendard, SIL Open Font License) into the same plugin folder. Without it, Vault Pet uses the fonts on your system.
 
@@ -190,9 +222,10 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 
 ## Privacy
 
-- Notes are only **read**. Their contents are never stored, shown elsewhere or sent anywhere. The plugin makes no network requests.
-- File and folder paths are never stored as-is. Each part of a path is replaced by a short hash, so your data file can't reveal what's in your vault.
-- What is saved: for each note, its longest-ever character and link counts and a few feature counts (kept for a while after you delete a note, so restoring it doesn't count twice); hourly writing totals per top-level folder; and your cat. All of it lives in `.obsidian/plugins/vault-pet/data.json`.
+- Notes are **read** to count your writing. Their contents are never stored or sent anywhere, and the plugin makes no network requests. Plus shows a card's title and the start of its first paragraph inside its own **Connect cards** and taming windows.
+- Plus writes to a note only when you press **Connect** (it adds one link line at the end, see [Connect cards](#connect-cards)) or **Make it a link** in Tidy links (that one mention becomes a link). Nothing else edits your notes.
+- Vault Pet never stores file and folder paths as-is: each part of a path is replaced by a short hash. **Plus is different:** its review schedule (which card is due when) and its record of links that already earned XP keep note paths and titles as they are, so with Plus your data file does show the names of your notes.
+- What is saved: for each note, its longest-ever character and link counts and a few feature counts (kept for a while after you delete a note, so restoring it doesn't count twice); hourly writing totals per top-level folder; your cat; and with Plus, the review schedule, the links that earned XP and your cats. All of it lives in `.obsidian/plugins/vault-pet-plus/data.json`.
 - A PNG is only created in your vault when you press **Save image** on the show-off card.
 
 ### What Vault Pet accesses, and why
@@ -200,15 +233,16 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 | Access | Why | When |
 |---|---|---|
 | **List of notes in your vault** | To remember how long each note already is, so writing you did before installing never counts, and to catch up on notes changed while Obsidian was closed | Once on first run, then only notes whose modified time changed. Folders you untick in the settings are skipped |
-| **Reading notes** | To count new characters, links, tags, tasks, headings, embeds, callouts and properties | Only when a note changes. Contents are never stored |
+| **Reading notes** | To count new characters, links, tags, tasks, headings, embeds, callouts and properties. Plus also reads them to find due cards, link suggestions and taming questions | Vault Pet: only when a note changes. Plus: all notes every 10 minutes, and when you open **Connect cards**, **Tidy links** or **A stranger cat**. Contents are never stored |
 | **Links between notes, recent notes, open panes** | For the Home note map, the orphan-note quest, recent notes and pane-opening quests and badges, using what Obsidian already knows (its link index, recently opened files, which pane is active) | While Obsidian runs. Only counts are saved, plus short hashes of notes already counted as linked |
+| **Writing to notes (Plus)** | **Connect** adds a `- [[link]]：reason` line to the end of the card; **Make it a link** turns one plain mention into a link | Only when you press one of them, one note at a time. Plus never creates or deletes notes |
 | **Opening notes and the graph view** | Clicking a note on the Home, or the Local graph and Graph view buttons | Only when you click. It opens existing notes and Obsidian's own graph commands; it never creates notes |
 | **Clipboard (write)** | The **Copy image** and **Copy caption** buttons on the show-off card | Only when you press one of them |
 | **Text you paste or drop into a note** | So pasted text doesn't turn into XP and coins | Only at the moment you paste or drop it into a note. Only its length is measured; the text is never stored. Vault Pet never reads your clipboard at any other time |
-| **Plugin data file** | Your cat, wallet, badges, hourly writing totals and your Home to-do list | `.obsidian/plugins/vault-pet/data.json`. The only other thing kept is a device name (next row) |
+| **Plugin data file** | Your cat, wallet, badges, hourly writing totals and your Home to-do list; with Plus, also the review schedule, the links that earned XP (by note path and title) and your cats | `.obsidian/plugins/vault-pet-plus/data.json`. The only other thing kept is a device name (next row) |
 | **Backup of the data file** | To bring your cat back if `data.json` is ever damaged (a crash mid-save, a sync conflict) | Once a day, a copy is written next to it as `data.backup.json`. A damaged file is kept as `data.broken-<time>.json` rather than deleted. Before merging changes from another device, this device's copy is kept as `data.premerge.json` (at most every 10 minutes) |
 | **A device name** | So two devices that sync the same vault merge their progress instead of overwriting each other | Made once and kept in Obsidian's local storage on this device, where it never syncs. It's a random string with nothing about you or the device in it |
-| **Your browser (link only)** | The **Send feedback** and **Star on GitHub** buttons | Only when you press one of them. They open this repository's issue page or main page. Vault Pet itself still makes no network requests |
+| **Your browser (link only)** | The **Send feedback** and **Star on GitHub** buttons | Only when you press one of them. **Send feedback** opens this repository's issue page; **Star on GitHub** opens the original Vault Pet's main page. Vault Pet itself still makes no network requests |
 
 ### One-time message
 
@@ -228,11 +262,11 @@ After you update Vault Pet and close the **What's new** window in the Vault Pet 
 
 **Can I farm XP by pasting text?** No. Text you paste or drag into a note doesn't count. Each note also remembers its longest-ever length, even after you delete it, so retyping, restoring a note from the trash or a sync that re-creates files earns nothing. Notes moved in from a folder you left out start from their current size, and bulk changes are capped.
 
-**Does it slow Obsidian down?** The cat lives in a lightweight transparent layer that ignores clicks except on the cat itself, and your vault is only read when notes change.
+**Does it slow Obsidian down?** The cat lives in a lightweight transparent layer that ignores clicks except on the cat itself. Vault Pet reads your vault only when notes change; Plus also reads all notes every 10 minutes to count due cards and links to tidy.
 
 **Can I use it on two devices?** Yes. If your vault syncs (Obsidian Sync, iCloud, …), Vault Pet merges what each device did instead of letting one overwrite the other: costumes, badges, coins, food and your writing history all carry over. Where the cat sits, low-power mode, do-not-disturb and a running focus session stay per device. Keep Vault Pet up to date on every device, since versions before 1.5.1 don't merge.
 
-**My cat disappeared or started over.** If the data file was damaged, Vault Pet restores your cat from the daily backup and tells you so. If that didn't happen, look in `.obsidian/plugins/vault-pet/` for `data.backup.json` and please [open an issue](../../issues/new/choose).
+**My cat disappeared or started over.** If the data file was damaged, Vault Pet restores your cat from the daily backup and tells you so. If that didn't happen, look in `.obsidian/plugins/vault-pet-plus/` for `data.backup.json` and please [open an issue](../../issues/new/choose).
 
 **What happens after Lv.80?** Your level stays at 80, and every 2,000 XP after that becomes a star (plus 500 coins). Stars buy the endgame costumes and animated fur colors in the star shop.
 
@@ -241,6 +275,15 @@ After you update Vault Pet and close the **What's new** window in the Vault Pet 
 ---
 
 ### 中文
+
+**Vault Pet Plus** 是 Vault Pet 的個人分支，把每則筆記當成卡片盒裡的一張卡：
+
+- **串連卡片**：貓叼回一張舊卡（標題和第一段開頭），附上通常兩張相關、兩張隨機抽到的卡片。寫一句「為什麼相關」才能連起來，連結會加在筆記尾端。
+- **整理連結**：把筆記裡以純文字出現的標題改成連結，只改你按下的那幾處。
+- **陌生的貓**：寫作習慣有時會引來牠。收服的題目大多來自你寫過的理由，不夠時改問哪張卡和它連在一起。收服的貓各自成長，進化需要等級和牠喜歡的習慣。
+- **和原版不同**：Plus 只在你按下按鈕時寫入筆記，但會以原始的筆記路徑和標題記下複習排程，並每 10 分鐘讀一次所有筆記。詳見英文的 Privacy 一節。
+
+以下是原版 Vault Pet 的簡體中文說明。
 
 **Vault Pet** 是一只陪你养成 Obsidian 好习惯、随着写作而成长的像素小猫。它待在工作区底部陪你一起打字，你写下的字数、链接和新笔记都会变成经验值和金币。小屋的「主页」专为写作准备：今日目标、带休息的专注计时、待办清单、教你用好 Obsidian 的每日任务（链接、标签、日记、属性、整理笔记、连起孤立笔记）、当前笔记周围的笔记地图和最近的笔记。待办只保存在插件里，主页不会新建或修改任何笔记。344 套装扮、36 种玩具和小游戏、174 枚成就徽章，还有来串门的街坊好友和用宝物做装扮的宝物工坊（都可以在设置里关掉），60 个动作一开始全部免费，可以按情境挑选或关闭。粘贴进来的文字和从回收站恢复的笔记不计数；笔记内容只会被读取统计，不会被保存或发送到任何地方。
 
