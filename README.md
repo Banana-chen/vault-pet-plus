@@ -16,25 +16,33 @@ Plus treats every note as a card in a Zettelkasten (a slip box of linked notes).
 
 ### Connect cards
 
-Run **Connect cards** from the command palette, or click your cat's bubble when old cards are due.
+Open **Connect cards** from the command palette, the status bar menu or your cat's right-click menu (**Connect cards (3)** shows how many are due). Once a day, when you pause, your cat also reminds you in a bubble.
 
 - Your cat brings back an old card (its title and the start of its first paragraph) with four cards it might connect to: usually two related ones (one mentions the other, they share a tag, or both are linked with the same note) and two drawn at random. Cards already linked with it are left out. **Show other cards** draws a new set.
 - To connect, write **one line on why** they're related. The line is required, because the reason is the part worth having. Pressing **Connect** adds `- [[Other card]]：your reason` to the end of the note.
-- There's no right or wrong. Once you press **Next** or **Open note** (or close the window after connecting it), linked or not, the card comes back later: after 2, then 4, then 8 days, then every 16 days. Up to 10 cards a day.
+- There's no right or wrong. Once you press **Next** or **Open note** (or close the window after connecting it), linked or not, the card comes back later: after 2, then 4, then 8 days, then every 16 days. Up to 10 cards a day, and a new note joins from the next day.
 - Cards with the fewest links come up first, so orphan notes get a turn before well-connected ones.
+- Your own cat sits in the window, in its current costume and form, and cheers each time you connect.
+- Each new link earns 20 XP, and revisiting old cards can come up as a daily quest.
 
 ### Tidy links
 
-**Tidy links** finds places where a note's title appears as plain text and offers to turn each one into a `[[link]]`. You see the before and after, and only the ones you press are changed.
+**Tidy links** finds places where a note's title appears as plain text and offers to turn each one into a link (`[[Title]]`, or `[[Title|your text]]` when you wrote it differently). You see the before and after, and only the ones you press are changed. It's in the status bar and right-click menus too, each link you tidy earns 20 XP, and tidying can come up as a daily quest.
 
 ### Meet, tame and evolve cats
 
 - **A stranger cat** sometimes comes to visit for 15 minutes, brought by writing habits (streaks, late nights, weekends, several notes in a day, a long note, lots of characters, links in your vault, tidied links, connections, clearing the day's quests) or plain luck. Click it to approach.
-- **Taming:** offer it food from the shop (pricier food helps a little), then answer up to three questions. More right answers make taming likelier, but it's never certain. Close the window after feeding and it runs away.
+- **Taming:** offer it food from the shop (pricier food helps a little), then answer up to three questions. Each right answer earns 15 XP and makes taming likelier, but it's never certain. Close the window after feeding and it runs away.
 - **Questions come from your reasons:** each shows a reason you wrote while connecting cards and asks which card you linked for it, so a link with real thought behind it is one you can answer later. When there aren't enough, the question asks which card is linked to the one shown instead.
-- Tamed cats go into the **Cat catalog** in the house. Each breed has its own look and grows on its own; only the cat you bring along earns XP.
-- **Evolution** needs a level plus the habits that breed likes: characters written, links in the vault, nights or days you wrote, or connections.
+- Tamed cats go into the **Cat catalog** in the house: the ones you've tamed in color, the ones you've only met as silhouettes. It never says how many there are; some breeds are rarer than others.
+- **Bring along** any tamed cat at any time. Each one keeps its own level and grows on its own; only the cat with you earns XP.
+- **Evolution** needs a level plus the habits that breed likes: characters written, links in the vault, nights or days you wrote, or connections. The Home shows what the next form still needs.
+- **Each form is a new look,** not just a bigger cat: a new outline and tail, and things like wings, halos or extra tails. The third form's fur sparkles (unless the fur color is already animated), and the second and third forms have motions of their own. A cat never goes back a form, even if you later delete links.
 - **Connections** count once per card each time you revisit it and connect it with a reason, so linking more cards at once doesn't add more. Right answers while taming count too.
+
+### Also in Plus
+
+- **Traditional Chinese.** The whole Chinese interface is in Traditional Chinese.
 
 ### Coming from Vault Pet
 
@@ -55,7 +63,7 @@ On first run, if Plus has no data of its own yet, it copies your whole Vault Pet
 - **Neighbors and a treasure workshop.** Neighbor friends drop by now and then, your cat finds tiny treasures, and you craft costumes out of them. Not your thing? Turn either one off in Settings, and nothing you've collected is lost.
 - **It never runs out.** Levels stop at Lv.80, and from then on your writing earns stars for a shop of its own.
 - **It's fair.** Only real new writing counts. Deleting and retyping, undo, pasting or dragging text in, and restoring a deleted note earn nothing.
-- **It's private.** Your notes are never stored or sent anywhere. No network access at all.
+- **It's private.** What your notes say is never stored or sent anywhere, and there's no network access at all. (Plus does keep note titles and paths; see [Privacy](#privacy).)
 
 ## Home
 
@@ -90,8 +98,8 @@ Your cat lives on the floor of your workspace, just above the status bar. It nap
 | Rub side to side | It purrs |
 | Drag | Pick it up and move it (it dangles, then lands) |
 | Double-click | Open the house |
-| Right-click | Feed it, give a snack, pull out a toy, quiet mode, hide, reset position |
-| Click a speech bubble | Jump straight to the badge, quest or item it's talking about |
+| Right-click | Feed it, give a snack, pull out a toy, quiet mode, hide, reset position, and with Plus, **Connect cards** and **Tidy links** |
+| Click a speech bubble | Jump straight to the badge, quest or item it's talking about, and with Plus, to **Connect cards**, **Tidy links**, a stranger cat or the **Cat catalog** |
 
 Clicks on the empty parts of the floor pass straight through to Obsidian, so your cat never gets in the way.
 
@@ -167,8 +175,6 @@ Make your own show-off card: pick this month, last month or all time, choose up 
 
 ![A September recap card in the night theme: Mochi at Lv.27 wrote 70.1K characters, with days together, longest streak, busiest day, busiest hour and favorite folder, plus a calendar of the days it wrote.](docs/kitcommit-card.png)
 
-Using [Hearth](https://github.com/ondreu/Hearth)? Its **Vault Pet** card puts your cat, or its whole house, on your Hearth dashboard.
-
 ## Settings
 
 Open the house (cat face in the ribbon, or double-click the cat; your cat's name in the status bar opens a quick menu) and go to **Settings**:
@@ -177,7 +183,7 @@ Open the house (cat face in the ribbon, or double-click the cat; your cat's name
 - Name, size (5 steps), fur color, ear shape (13 shapes, free from the start)
 - **Theme** for the house: Cream, Cocoa, Mint milk, Sakura, Milk choco, or Auto (follows your Obsidian light or dark theme)
 - **Mute**: turns off every sound effect. Also in Obsidian's plugin settings and the command palette
-- Language (English, 한국어, 中文, Русский). It starts in the language your Obsidian is set to. The Russian translation is by [@rimpk901](https://github.com/rimpk901)
+- Language (English, 한국어, 中文, Русский). It starts in the language your Obsidian is set to. Plus's own text (its windows, menu items and the cat's lines about cards and cats) isn't translated into Russian and shows in English. The Russian translation is by [@rimpk901](https://github.com/rimpk901)
 - Speech bubbles, small talk, occasional Obsidian tips
 - Lunch and dinner times, break reminder, when to get sleepy, bedtime, late-night nagging
 - Motions for every situation, with a drag-and-drop editor. All motions are unlocked; switch a situation off to skip its motion, and choose whether full-set costumes mix in their own motions
@@ -206,7 +212,7 @@ Vault Pet is desktop only, since petting, dragging and right-clicking your cat a
 
 Working with Claude Code or Codex too? **[Kit Commit](https://elliott-json-park.github.io/kitcommit-releases/)** is the free desktop edition of the same cat for Windows and Mac. Instead of your writing, it turns your AI token usage into XP and coins: it types along while a reply is being written, claps when it's done and waves when your OK is needed. It never reads your conversations. [Download it here](https://elliott-json-park.github.io/kitcommit-releases/).
 
-## More from the same author
+## More from Vault Pet's author
 
 - **[Vault Orrery](https://community.obsidian.md/plugins/vault-orrery)**: your vault as a 3D galaxy, where every folder is a solar system. Replay how it grew, note by note.
 - **[Class Timetable](https://community.obsidian.md/plugins/class-timetable)**: a weekly class timetable for students, with each class's lecture notes one click away. Desktop and mobile.
@@ -218,7 +224,7 @@ Working with Claude Code or Codex too? **[Kit Commit](https://elliott-json-park.
 Vault Pet has no telemetry, so the only way to know what you like, what's broken and what's missing is if you say so.
 
 - **A bug or a wish:** [open an issue](../../issues/new/choose). One sentence is enough. The **Send feedback** button in the house settings takes you to the same place.
-- **Screenshots of your cat, questions, anything else:** [Discussions](../../discussions).
+- **Screenshots of your cat, questions, anything else:** [open an issue](../../issues) too.
 
 ## Privacy
 
@@ -242,11 +248,11 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 | **Plugin data file** | Your cat, wallet, badges, hourly writing totals and your Home to-do list; with Plus, also the review schedule, the links that earned XP (by note path and title) and your cats | `.obsidian/plugins/vault-pet-plus/data.json`. The only other thing kept is a device name (next row) |
 | **Backup of the data file** | To bring your cat back if `data.json` is ever damaged (a crash mid-save, a sync conflict) | Once a day, a copy is written next to it as `data.backup.json`. A damaged file is kept as `data.broken-<time>.json` rather than deleted. Before merging changes from another device, this device's copy is kept as `data.premerge.json` (at most every 10 minutes) |
 | **A device name** | So two devices that sync the same vault merge their progress instead of overwriting each other | Made once and kept in Obsidian's local storage on this device, where it never syncs. It's a random string with nothing about you or the device in it |
-| **Your browser (link only)** | The **Send feedback** and **Star on GitHub** buttons | Only when you press one of them. **Send feedback** opens this repository's issue page; **Star on GitHub** opens the original Vault Pet's main page. Vault Pet itself still makes no network requests |
+| **Your browser (link only)** | The **Send feedback**, **Suggest a costume** and **Star on GitHub** buttons | Only when you press one of them. **Send feedback** opens this repository's issue page; **Suggest a costume** and **Star on GitHub** open the original Vault Pet's costume form and main page. Vault Pet itself still makes no network requests |
 
 ### One-time message
 
-After you update Vault Pet and close the **What's new** window in the Vault Pet house, a small window asks you to star this repository on GitHub if you enjoy the plugin. It appears **once**, inside Vault Pet's own house (never as a pop-up elsewhere in Obsidian), only for people who updated rather than new installs, and it never comes back after that. Nothing in the game depends on it. There are no other messages or ads.
+After you update Vault Pet and close the **What's new** window in the Vault Pet house, a small window asks you to star the original Vault Pet repository on GitHub if you enjoy the plugin. It appears **once**, inside Vault Pet's own house (never as a pop-up elsewhere in Obsidian), only for people who updated rather than new installs, and it never comes back after that. Nothing in the game depends on it. There are no other messages or ads.
 
 ## FAQ
 
@@ -264,7 +270,7 @@ After you update Vault Pet and close the **What's new** window in the Vault Pet 
 
 **Does it slow Obsidian down?** The cat lives in a lightweight transparent layer that ignores clicks except on the cat itself. Vault Pet reads your vault only when notes change; Plus also reads all notes every 10 minutes to count due cards and links to tidy.
 
-**Can I use it on two devices?** Yes. If your vault syncs (Obsidian Sync, iCloud, …), Vault Pet merges what each device did instead of letting one overwrite the other: costumes, badges, coins, food and your writing history all carry over. Where the cat sits, low-power mode, do-not-disturb and a running focus session stay per device. Keep Vault Pet up to date on every device, since versions before 1.5.1 don't merge.
+**Can I use it on two devices?** Yes. If your vault syncs (Obsidian Sync, iCloud, …), Vault Pet merges what each device did instead of letting one overwrite the other: costumes, badges, coins, food and your writing history all carry over. With Plus, the cats you've tamed on each device are merged too. Where the cat sits, low-power mode, do-not-disturb and a running focus session stay per device. Keep every device on the same version of Vault Pet Plus.
 
 **My cat disappeared or started over.** If the data file was damaged, Vault Pet restores your cat from the daily backup and tells you so. If that didn't happen, look in `.obsidian/plugins/vault-pet-plus/` for `data.backup.json` and please [open an issue](../../issues/new/choose).
 
@@ -280,27 +286,31 @@ After you update Vault Pet and close the **What's new** window in the Vault Pet 
 
 - **串連卡片**：貓叼回一張舊卡（標題和第一段開頭），附上通常兩張相關、兩張隨機抽到的卡片。寫一句「為什麼相關」才能連起來，連結會加在筆記尾端。
 - **整理連結**：把筆記裡以純文字出現的標題改成連結，只改你按下的那幾處。
-- **陌生的貓**：寫作習慣有時會引來牠。收服的題目大多來自你寫過的理由，不夠時改問哪張卡和它連在一起。收服的貓各自成長，進化需要等級和牠喜歡的習慣。
+- **陌生的貓**：寫作習慣有時會引來牠。收服的題目大多來自你寫過的理由，不夠時改問哪張卡和它連在一起。收服的貓收進貓咪圖鑑，可以隨時帶在身邊，各自成長。
+- **進化**：需要等級和牠喜歡的習慣，每一階段都是新的外形（輪廓、尾巴、翅膀或光環等），第二、三階段還有專屬動作；進化後不會退回。
+- **繁體中文介面**：整個中文介面都是繁體中文。
 - **和原版不同**：Plus 只在你按下按鈕時寫入筆記，但會以原始的筆記路徑和標題記下複習排程，並每 10 分鐘讀一次所有筆記。詳見英文的 Privacy 一節。
 
 以下是原版 Vault Pet 的簡體中文說明。
 
-**Vault Pet** 是一只陪你养成 Obsidian 好习惯、随着写作而成长的像素小猫。它待在工作区底部陪你一起打字，你写下的字数、链接和新笔记都会变成经验值和金币。小屋的「主页」专为写作准备：今日目标、带休息的专注计时、待办清单、教你用好 Obsidian 的每日任务（链接、标签、日记、属性、整理笔记、连起孤立笔记）、当前笔记周围的笔记地图和最近的笔记。待办只保存在插件里，主页不会新建或修改任何笔记。344 套装扮、36 种玩具和小游戏、174 枚成就徽章，还有来串门的街坊好友和用宝物做装扮的宝物工坊（都可以在设置里关掉），60 个动作一开始全部免费，可以按情境挑选或关闭。粘贴进来的文字和从回收站恢复的笔记不计数；笔记内容只会被读取统计，不会被保存或发送到任何地方。
+**Vault Pet** 是一只陪你养成 Obsidian 好习惯、随着写作而成长的像素小猫。它待在工作区底部陪你一起打字，你写下的字数、链接和新笔记都会变成经验值和金币。小屋的「主页」专为写作准备：今日目标、带休息的专注计时、待办清单、教你用好 Obsidian 的每日任务（链接、标签、日记、属性、整理笔记、连起孤立笔记）、当前笔记周围的笔记地图和最近的笔记。待办只保存在插件里，主页不会新建或修改任何笔记。345 套装扮、36 种玩具和小游戏、174 枚成就徽章，还有来串门的街坊好友和用宝物做装扮的宝物工坊（都可以在设置里关掉），60 个动作一开始全部免费，可以按情境挑选或关闭。粘贴进来的文字和从回收站恢复的笔记不计数；笔记内容只会被读取统计，不会被保存或发送到任何地方。
 
-- **自带中文界面**：猫咪的对话、小屋、商店、成就、设置和命令全部支持简体中文。
+- **自带中文界面**：猫咪的对话、小屋、商店、成就、设置和命令全部支持中文（Vault Pet Plus 为繁体中文）。
 - 首次安装时会跟随 Obsidian 的界面语言（中文则自动选中文）。
-- 切换语言：设置 → 第三方插件 → Vault Pet → 语言，或在小屋的「设置」页里选择 中文 / English / 한국어。
+- 切换语言：设置 → 第三方插件 → Vault Pet Plus → 语言，或在小屋的「设置」页里选择 中文 / English / 한국어。
 
-安装：设置 → 第三方插件 → 浏览 → 搜索 “Vault Pet”
+安装：Vault Pet Plus 不在第三方插件列表里，请参考英文的 [Installation](#installation) 一节。
 
 ### 한국어
 
-**Vault Pet(볼트 펫)** 은 옵시디언 쓰는 습관을 같이 들이고, 글을 쓸수록 자라는 도트 고양이예요. 작업 영역 바닥에서 같이 타이핑하고, 쓴 글자·링크·새 노트가 경험치와 코인이 돼요. 하우스의 **홈**은 옵시디언으로 일할 때 필요한 것들로 채웠어요: 오늘의 목표, 쉬는 시간까지 이어지는 집중 타이머, 할 일 목록, 옵시디언을 잘 쓰게 돕는 오늘 퀘스트(링크 · 태그 · 데일리 노트 · 속성 · 노트 정리 · 외톨이 노트 잇기), 지금 노트 둘레의 노트 지도, 최근 노트. 할 일은 플러그인 안에만 저장되고, 홈은 노트를 만들거나 고치지 않아요. 코스튬 344개(별로만 사는 끝판왕 코스튬 56개 포함), 장난감·미니게임 36개, 업적 174개, 놀러 오는 동네 친구와 주운 보물로 옷을 만드는 보물 공방(설정에서 끌 수 있어요), 모션 60개는 처음부터 모두 공짜라 상황마다 고르거나 끌 수 있어요. Lv80 다음에는 별이 쌓이고, 기간·칸·색을 골라 나만의 자랑 카드를 만들 수 있어요. 붙여 넣은 글이나 지웠다 되살린 노트는 세지 않고, 노트 내용은 읽기만 할 뿐 어디에도 저장하거나 보내지 않아요. 고양이 언어는 옵시디언 언어 설정을 따라 처음에 정해지고, 하우스 설정에서 바꿀 수 있어요.
+**Vault Pet Plus** 는 Vault Pet 의 개인 포크예요. 카드 잇기 · 링크 정리 · 고양이 도감, 그리고 원래 플러그인과 다른 점(노트에 쓰는 때, 저장하는 것)은 [위의 영어 설명](#what-plus-adds)을 보세요. 아래는 원래 Vault Pet 소개예요.
+
+**Vault Pet(볼트 펫)** 은 옵시디언 쓰는 습관을 같이 들이고, 글을 쓸수록 자라는 도트 고양이예요. 작업 영역 바닥에서 같이 타이핑하고, 쓴 글자·링크·새 노트가 경험치와 코인이 돼요. 하우스의 **홈**은 옵시디언으로 일할 때 필요한 것들로 채웠어요: 오늘의 목표, 쉬는 시간까지 이어지는 집중 타이머, 할 일 목록, 옵시디언을 잘 쓰게 돕는 오늘 퀘스트(링크 · 태그 · 데일리 노트 · 속성 · 노트 정리 · 외톨이 노트 잇기), 지금 노트 둘레의 노트 지도, 최근 노트. 할 일은 플러그인 안에만 저장되고, 홈은 노트를 만들거나 고치지 않아요. 코스튬 345개(별로만 사는 끝판왕 코스튬 56개 포함), 장난감·미니게임 36개, 업적 174개, 놀러 오는 동네 친구와 주운 보물로 옷을 만드는 보물 공방(설정에서 끌 수 있어요), 모션 60개는 처음부터 모두 공짜라 상황마다 고르거나 끌 수 있어요. Lv80 다음에는 별이 쌓이고, 기간·칸·색을 골라 나만의 자랑 카드를 만들 수 있어요. 붙여 넣은 글이나 지웠다 되살린 노트는 세지 않고, 노트 내용은 읽기만 할 뿐 어디에도 저장하거나 보내지 않아요. 고양이 언어는 옵시디언 언어 설정을 따라 처음에 정해지고, 하우스 설정에서 바꿀 수 있어요.
 
 Claude Code·Codex 로 일한다면, AI 토큰 사용량을 코인으로 바꿔 주는 데스크톱판 **[킷커밋(Kit Commit)](https://elliott-json-park.github.io/kitcommit-releases/ko/)** 도 무료로 받을 수 있어요 (윈도우·맥).
 
 ---
 
-Vault Pet is the Obsidian edition of the [Kit Commit](https://elliott-json-park.github.io/kitcommit-releases/) desktop pet. **An unofficial fan-made project**, not affiliated with, made by or endorsed by Anthropic or Obsidian.
+Vault Pet Plus is a personal fork of [Vault Pet](https://github.com/elliott-json-park/obsidian-vault-pet), which is the Obsidian edition of the [Kit Commit](https://elliott-json-park.github.io/kitcommit-releases/) desktop pet. **An unofficial fan-made project**, not affiliated with, made by or endorsed by Anthropic or Obsidian.
 
 MIT License · Pretendard font under the SIL Open Font License 1.1
