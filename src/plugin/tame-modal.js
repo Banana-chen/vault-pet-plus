@@ -1,5 +1,5 @@
 'use strict';
-// [Plus] 길들이기 창: 먹이 하나 주기 → 이웃 문제 셋 (이 카드와 이어진 카드 고르기) → (안 보이는) 주사위 → 이름 짓기.
+// [Plus] 길들이기 창: 먹이 하나 주기 → 문제 셋 (내가 적은 이유로 이은 카드 고르기, 모자라면 이웃 문제) → (안 보이는) 주사위 → 이름 짓기.
 // 확률은 보여 주지 않고, 맞힐 때마다 "조금 편해 보인다" 같은 말만 한다. 먹이를 준 뒤 창을 닫으면 달아난다
 const { Modal, Setting, Notice } = require('obsidian');
 const { tameChance } = require('../core/collection');
@@ -82,7 +82,7 @@ class TameModal extends Modal {
   renderQuestion(text) {
     const c = this.cards[this.i];
     const el = this.head(text || this.t('tame.mood' + Math.min(this.correct, 3)));
-    el.createEl('p', { cls: 'setting-item-description', text: `${this.t('tame.q', { i: this.i + 1, total: this.cards.length })} · ${this.t('tame.ask')}` });
+    el.createEl('p', { cls: 'setting-item-description', text: `${this.t('tame.q', { i: this.i + 1, total: this.cards.length })} · ${this.t(c.kind === 'reason' ? 'tame.askReason' : 'tame.ask')}` });
     drawCard(el, c);
     const opts = el.createDiv({ cls: 'vpp-opts' });
     for (const o of c.options) {

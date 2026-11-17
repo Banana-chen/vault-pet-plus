@@ -50,11 +50,13 @@ function renameInDeck(deck, from, to) {
   return Object.fromEntries(Object.entries(deck).map(([k, c]) => [moved(k), c]));
 }
 
-// 오늘 낼 카드: 오래 밀린 것부터, 하루 DAILY_CAP 장까지
-function dueToday(deck, today, doneToday, cap = DAILY_CAP) {
+// 오늘 낼 카드: 이어진 카드가 적은 것(외톨이)부터, 그다음 오래 밀린 것부터, 하루 DAILY_CAP 장까지
+// degree = { path: 이웃 수 } (없으면 밀린 순서만)
+function dueToday(deck, today, doneToday, cap = DAILY_CAP, degree = {}) {
+  const d = (p) => degree[p] || 0;
   return Object.entries(deck)
     .filter(([, c]) => c.due <= today)
-    .sort((a, b) => a[1].due - b[1].due || a[0].localeCompare(b[0]))
+    .sort((a, b) => d(a[0]) - d(b[0]) || a[1].due - b[1].due || a[0].localeCompare(b[0]))
     .slice(0, Math.max(0, cap - doneToday))
     .map(([p]) => p);
 }

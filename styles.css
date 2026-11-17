@@ -214,6 +214,9 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
 .vpp-modal .vpp-input {
   width: 100%;
 }
+.vpp-modal .vpp-input.vpp-need {
+  border-color: var(--color-red);
+}
 .vpp-modal .vpp-result {
   font-weight: 600;
 }

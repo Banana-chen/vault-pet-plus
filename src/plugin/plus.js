@@ -7,7 +7,7 @@
 const obsidian = require('obsidian');
 const { TFile } = obsidian;
 const { schedule, syncDeck, renameInDeck, dueToday, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
-const { excerptOf, neighborsOf, candidates, neighborQuiz, appendLink } = require('../core/connect');
+const { excerptOf, neighborsOf, candidates, neighborQuiz, reasonQuiz, appendLink } = require('../core/connect');
 const { findMentions, applyLink } = require('../core/tidy');
 const { loadSafe } = require('./safedata');
 
@@ -19,7 +19,7 @@ const RECOUNT_MIN = 10;
 // 사람이 앞에 있다고 볼 만큼 최근에 만졌고, 지금 막 치는 중은 아닐 때만 말을 건다
 const NUDGE_IDLE_S = [20, 600];
 
-// correct = 이은 카드 수 + 길들이기에서 맞힌 수 (진화 조건 '이은 카드'). paid = 이미 경험치를 준 연결
+// correct = 이유를 적어 이은 카드 수 (한 번 볼 때 카드당 1) + 길들이기에서 맞힌 수 (진화 조건 '이은 카드'). paid = 이미 경험치를 준 연결
 const REVIEW_DEFAULT = { deck: {}, seeded: false, correct: 0, done: 0, today: { day: 0, n: 0 }, days: [], nudged: 0, due: 0, paid: {} };
 const TIDY_DEFAULT = { done: 0, open: 0, paid: {}, nudged: 0 };
 
@@ -99,7 +99,8 @@ class Plus {
     const notes = await this.syncDeck();
     const by = new Map(notes.map((n) => [n.path, n]));
     const nb = this.graph();
-    const out = dueToday(this.review().deck, dayNum(), this.doneToday())
+    const degree = Object.fromEntries(Object.entries(nb).map(([p, set]) => [p, set.size]));
+    const out = dueToday(this.review().deck, dayNum(), this.doneToday(), DAILY_CAP, degree)
       .map((path) => by.get(path))
       .filter(Boolean)
       .map((note) => ({
@@ -115,8 +116,10 @@ class Plus {
     return out;
   }
 
-  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 같은 연결은 한 번만 경험치 · 이은 카드 수
+  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 이유가 없으면 잇지 않는다. 같은 연결은 한 번만 경험치
+  // ('이은 카드' 수는 visit 에서 카드당 한 번만 센다 — 링크를 많이 이을수록 진화하는 게 아니다)
   async connect(path, target, reason) {
+    if (!String(reason || '').trim()) return null;
     const f = this.plugin.app.vault.getAbstractFileByPath(path);
     if (!(f instanceof TFile)) return null;
     let ok = false;
@@ -129,18 +132,19 @@ class Plus {
     const r = this.review();
     const key = `${path}\n${target}`;
     if (r.paid[key]) return 0;
-    this.setReview({ paid: { ...r.paid, [key]: Date.now() }, correct: r.correct + 1 });
-    if (this.plugin.collect) this.plugin.collect.addCorrect();
+    this.setReview({ paid: { ...r.paid, [key]: Date.now() } });
     this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
     return CONNECT_XP;
   }
 
-  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1
-  visit(key) {
+  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1. 이번에 하나라도 이었으면 '이은 카드' +1
+  visit(key, linked = 0) {
     const r = this.review();
     const today = dayNum();
+    if (linked > 0 && this.plugin.collect) this.plugin.collect.addCorrect();
     this.setReview({
+      correct: r.correct + (linked > 0 ? 1 : 0),
       deck: { ...r.deck, [key]: schedule(r.deck[key] || { b: 0, due: today }, today) },
       done: r.done + 1,
       today: { day: today, n: this.doneToday() + 1 },
@@ -150,9 +154,13 @@ class Plus {
     this.host.recomputeGrowth();
   }
 
-  // 길들이기 문제: 이웃이 있는 카드 n 장 (상자 · 오늘 할당량과 상관없이)
-  async neighborCards(n) {
-    return neighborQuiz(await this.notes(), this.graph(), Math.random, n);
+  // 길들이기 문제 n 개: 내가 적은 이유로 먼저, 모자라면 이웃 문제로 (상자 · 오늘 할당량과 상관없이)
+  async tameCards(n) {
+    const notes = await this.notes();
+    const nb = this.graph();
+    const mine = reasonQuiz(notes, nb, Math.random, n);
+    const used = new Set(mine.map((q) => q.path));
+    return [...mine, ...neighborQuiz(notes.filter((x) => !used.has(x.path)), nb, Math.random, n - mine.length)];
   }
 
   // 길들이기 문제를 풀었다: 맞히면 경험치와 '이은 카드' 수

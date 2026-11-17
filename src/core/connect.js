@@ -1,7 +1,8 @@
 'use strict';
 // [Plus] 카드 잇기 (루만의 메모 상자식 복습): 옛 카드를 다시 보고 이을 만한 카드를 권한다. 외우기 시험이 아니다.
-//  - candidates: 이 카드와 이을 만한 카드 (서로 언급 · 같은 태그 · 같은 이웃 + 우연히 뽑은 한 장)
-//  - neighborQuiz: 길들이기 문제. 이 카드와 정말 이어진 카드를 보기 넷 중에 고른다 (정답은 볼트의 실제 링크)
+//  - candidates: 이 카드와 이을 만한 카드 (서로 언급 · 같은 태그 · 같은 이웃 둘 + 우연히 뽑은 둘)
+//  - reasonQuiz: 길들이기 문제. 내가 적은 이유를 보고 그 이유로 이은 카드를 고른다
+//  - neighborQuiz: 이유 문제가 모자랄 때. 이 카드와 정말 이어진 카드를 보기 넷 중에 고른다 (정답은 볼트의 실제 링크)
 //  - appendLink: 노트 끝에 '- [[대상]]：이유' 한 줄. 사용자가 버튼을 눌렀을 때만 쓴다 (plugin/plus.js)
 const { namesOf, firstParagraph } = require('./review');
 const { aliasOk } = require('./tidy');
@@ -35,7 +36,8 @@ function shuffle(list, rand) {
 const mentions = (a, b) => namesOf(b.title).filter(aliasOk).some((alias) => a.text.toLowerCase().includes(alias.toLowerCase()));
 
 // notes = [{ path, title, text, tags }] → [{ path, title, excerpt, why, via }] (why: mention | tag | neighbor | random)
-// 이미 이어진 카드는 빼고, 점수 높은 n-1 장 + 우연히 뽑은 한 장 (뜻밖의 연결도 메모 상자의 맛)
+// 이미 이어진 카드는 빼고, 점수 높은 n-2 장 + 우연히 뽑은 두 장 (뻔한 연결은 이미 안다. 새 생각은 뜻밖의 연결에서 나온다)
+const LUCKY = 2;
 function candidates(note, notes, nb, rand = Math.random, n = 4, skip = []) {
   const mine = nb[note.path] || new Set();
   const titles = new Map(notes.map((x) => [x.path, x.title]));
@@ -53,8 +55,34 @@ function candidates(note, notes, nb, rand = Math.random, n = 4, skip = []) {
     (score ? scored : rest).push({ score: score + rand() * 0.5, c });
   }
   scored.sort((a, b) => b.score - a.score);
-  const lucky = shuffle(rest, rand).slice(0, Math.max(1, n - scored.length));
-  return [...scored.slice(0, n - 1), ...lucky].slice(0, n).map((x) => x.c);
+  const lucky = shuffle(rest, rand).slice(0, Math.max(LUCKY, n - scored.length));
+  const sure = scored.slice(0, Math.max(n - lucky.length, n - LUCKY));
+  return [...sure, ...lucky].slice(0, n).map((x) => x.c);
+}
+
+// 노트에 적힌 '- [[대상]]：이유' 줄 (appendLink 가 쓰는 꼴, 반각 ':' 도 받는다). 이유가 빈 줄은 뺀다
+const REASON_LINE = /^- \[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]\s*[：:]\s*(\S.*)$/;
+function reasonsOf(text) {
+  return String(text).split('\n').map((l) => l.trim().match(REASON_LINE)).filter(Boolean).map((m) => ({ target: m[1].trim(), reason: m[2].trim() }));
+}
+
+// 길들이기 문제: 내가 적은 이유를 보여 주고, 이 카드가 그 이유로 이은 카드를 고른다.
+// 이유 없는 링크는 문제가 안 된다 — 대충 이은 링크로는 길들이기에 도움이 안 된다
+function reasonQuiz(notes, nb, rand = Math.random, n = 3, size = 4) {
+  const byTitle = new Map(notes.map((x) => [x.title, x]));
+  const pool = notes.flatMap((note) => reasonsOf(note.text).filter((r) => byTitle.has(r.target) && r.target !== note.title).map((r) => ({ note, ...r })));
+  const out = [];
+  for (const { note, target, reason } of shuffle(pool, rand)) {
+    if (out.length >= n) break;
+    if (out.some((q) => q.path === note.path)) continue;
+    const near = nb[note.path] || new Set();
+    const far = notes.filter((o) => o.path !== note.path && o.title !== target && !near.has(o.path));
+    if (far.length < size - 1) continue;
+    const answer = byTitle.get(target).path;
+    const options = shuffle([byTitle.get(target), ...shuffle(far, rand).slice(0, size - 1)], rand).map((o) => ({ path: o.path, title: o.title }));
+    out.push({ path: note.path, title: note.title, question: reason, options, answer, kind: 'reason' });
+  }
+  return out;
 }
 
 // 이웃이 있는 카드 n 장으로 문제를 낸다: { path, title, question, options: [{ path, title }], answer }
@@ -82,4 +110,4 @@ function appendLink(text, target, reason = '') {
   return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}- [[${target}]]${why ? `：${why}` : ''}\n`;
 }
 
-module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, appendLink };
+module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, reasonsOf, reasonQuiz, appendLink };

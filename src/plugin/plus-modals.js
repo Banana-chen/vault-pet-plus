@@ -11,7 +11,7 @@ function drawCard(parent, c) {
   return box;
 }
 
-// 카드 잇기: 옛 카드를 다시 보고, 이을 만한 카드 중에 고르고 이유를 적어 잇는다. 맞고 틀림이 없다
+// 카드 잇기: 옛 카드를 다시 보고, 이을 만한 카드 중에 고르고 이유를 적어 잇는다 (이유는 꼭). 맞고 틀림이 없다
 class ReviewModal extends Modal {
   constructor(app, plugin, cards) {
     super(app);
@@ -56,6 +56,7 @@ class ReviewModal extends Modal {
       return;
     }
     const c = this.cards[this.i];
+    this.linkedHere = 0;
     this.shown = c.candidates.map((x) => x.path);
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
     const stage = el.createDiv({ cls: 'vpp-stage' });
@@ -68,7 +69,7 @@ class ReviewModal extends Modal {
     new Setting(el)
       .addButton((b) =>
         b.setButtonText(this.t('plus.open')).onClick(() => {
-          this.plus.visit(c.key);
+          this.plus.visit(c.key, this.linkedHere);
           this.i++;
           this.close();
           this.app.workspace.openLinkText(c.path, '', false);
@@ -83,7 +84,7 @@ class ReviewModal extends Modal {
       )
       .addButton((b) =>
         b.setButtonText(this.t('plus.next')).setCta().onClick(() => {
-          this.plus.visit(c.key);
+          this.plus.visit(c.key, this.linkedHere);
           this.i++;
           this.render();
         }),
@@ -104,11 +105,16 @@ class ReviewModal extends Modal {
     }
   }
 
-  // 왜 이어지는지 한 줄 (비워도 된다). 이유를 적는 것이 이 복습의 알맹이다
+  // 왜 이어지는지 한 줄 (비우면 잇지 않는다). 이유를 적는 것이 이 복습의 알맹이고, 길들이기 문제로 다시 나온다
   askReason(c, o, box, row) {
     row.settingEl.remove();
     const input = box.createEl('input', { type: 'text', cls: 'vpp-input', attr: { placeholder: this.t('plus.reason') } });
     const go = async () => {
+      if (!input.value.trim()) {
+        input.addClass('vpp-need');
+        input.focus();
+        return;
+      }
       input.disabled = true;
       const xp = await this.plus.connect(c.path, o.title, input.value);
       input.remove();
@@ -118,6 +124,7 @@ class ReviewModal extends Modal {
         return;
       }
       this.links++;
+      this.linkedHere++;
       this.xp += xp;
       if (this.cat) this.cat.act('right');
       box.createEl('p', { cls: 'vpp-result vpp-right', text: this.t('plus.connected', { xp }) });

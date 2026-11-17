@@ -121,6 +121,33 @@ test('neighborQuiz: 이웃이 있는 카드만 문제가 되고, 정답은 실�
   assert.deepStrictEqual(connect.neighborQuiz(BOX.slice(0, 3), NB), [], '보기가 모자라면 문제를 내지 않는다');
 });
 
+test('candidates: 뻔한 카드는 둘까지, 나머지 둘은 우연히 뽑은 카드 (뜻밖의 연결)', () => {
+  const many = [N('A', 'A 是 B 也是 C 也是 D', ['#t']), ...['B', 'C', 'D', 'E', 'F', 'G'].map((t) => N(t, t + '。', ['#t']))];
+  many.push(N('X', 'x。'), N('Y', 'y。'));
+  const list = connect.candidates(many[0], many, {}, () => 0.3, 4);
+  assert.strictEqual(list.length, 4);
+  assert.strictEqual(list.filter((c) => c.why === 'random').length, 2, list.map((c) => c.why).join());
+});
+
+test('dueToday: 밀린 카드 중 이어진 카드가 적은 것(외톨이)부터', () => {
+  const deck = { 'hub.md': { b: 0, due: 1 }, 'lonely.md': { b: 0, due: 5 }, 'mid.md': { b: 0, due: 3 } };
+  const degree = { 'hub.md': 9, 'mid.md': 2 };
+  assert.deepStrictEqual(review.dueToday(deck, 7, 0, 10, degree), ['lonely.md', 'mid.md', 'hub.md']);
+  assert.deepStrictEqual(review.dueToday(deck, 7, 0), ['hub.md', 'mid.md', 'lonely.md'], 'degree 가 없으면 예전처럼');
+});
+
+test('reasonQuiz: 이유를 적은 링크로만 문제를 내고, 정답은 그 링크가 가리키는 카드', () => {
+  const box = [N('Kafka', 'Kafka 是訊息佇列。\n\n- [[背壓]]：消費者拉得慢時自然形成背壓\n- [[盧曼]]\n'), ...BOX.slice(1)];
+  const nb = connect.neighborsOf({ 'Kafka.md': { '背壓.md': 1, '盧曼.md': 1 } });
+  const quiz = connect.reasonQuiz(box, nb, () => 0.1, 3);
+  assert.strictEqual(quiz.length, 1, '이유 없는 [[盧曼]] 은 문제가 아니다');
+  const q = quiz[0];
+  assert.deepStrictEqual([q.title, q.question, q.answer], ['Kafka', '消費者拉得慢時自然形成背壓', '背壓.md']);
+  assert.strictEqual(q.options.length, 4);
+  assert.strictEqual(q.options.filter((o) => nb['Kafka.md'].has(o.path)).length, 1, '다른 보기는 이웃이 아니다');
+  assert.ok(q.options.every((o) => o.path !== 'Kafka.md'));
+});
+
 test('appendLink: 노트 끝에 링크와 이유 한 줄, 이미 이어져 있으면 null, 링크 목록 뒤에는 바로 붙인다', () => {
   assert.strictEqual(connect.appendLink('본문\n', '背壓', '都在談流量控制'), '본문\n\n- [[背壓]]：都在談流量控制\n');
   assert.strictEqual(connect.appendLink('본문\n\n- [[背壓]]：a\n', 'Kafka', ''), '본문\n\n- [[背壓]]：a\n- [[Kafka]]\n');
