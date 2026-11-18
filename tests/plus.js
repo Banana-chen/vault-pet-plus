@@ -170,6 +170,101 @@ test('reasonsOf: 반각 콜론 · 별칭 · 제목 링크도 읽고, 이유가 �
   ]);
 });
 
+test('newCard: 이유로 시작하고 두 카드로 링크, 제목은 파일 이름에 못 쓰는 글자를 뺀 이유', () => {
+  assert.deepStrictEqual(connect.newCard('消費者拉得慢時自然形成背壓', 'Kafka', '背壓'), {
+    title: '消費者拉得慢時自然形成背壓',
+    text: '消費者拉得慢時自然形成背壓\n\n- [[Kafka]]\n- [[背壓]]\n',
+  });
+  assert.strictEqual(connect.newCard('A/B: why? [x] #tag', 'a', 'b').title, 'A B why x tag');
+  assert.strictEqual(connect.newCard('字'.repeat(80), 'a', 'b').title.length, 60, '제목은 60자까지');
+  assert.strictEqual(connect.newCard('?:/', 'Kafka', '背壓').title, 'Kafka × 背壓', '남는 글자가 없으면 두 카드 이름');
+});
+
+test('freePath: 원래 카드와 같은 폴더, 이름이 겹치면 뒤에 2 · 3', () => {
+  assert.strictEqual(connect.freePath('mq', 'Pull', () => false), 'mq/Pull.md');
+  assert.strictEqual(connect.freePath('', 'Pull', () => false), 'Pull.md', '볼트 맨 위');
+  const taken = new Set(['mq/Pull.md', 'mq/Pull 2.md']);
+  assert.strictEqual(connect.freePath('mq', 'Pull', (p) => taken.has(p)), 'mq/Pull 3.md');
+});
+
+test('newCard: 제목이 숨김 파일 · 점이나 공백으로 끝나지 않고, 이모지를 반으로 자르지 않는다', () => {
+  assert.strictEqual(connect.newCard('..hidden idea. ', 'a', 'b').title, 'hidden idea');
+  assert.strictEqual(connect.newCard('😀'.repeat(70), 'a', 'b').title, '😀'.repeat(60));
+});
+
+/* ── Plus (옵시디언 쪽): 가짜 볼트로 ── */
+const Module = require('module');
+class TFile {
+  constructor(p, text) {
+    this.path = p;
+    this.text = text;
+    this.basename = p.split('/').pop().replace(/\.md$/, '');
+    this.extension = 'md';
+    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '/';
+    this.parent = { path: dir };
+  }
+}
+const load = Module._load;
+Module._load = function (req, ...rest) {
+  return req === 'obsidian' ? { TFile } : load.call(this, req, ...rest);
+};
+const { Plus } = require(path.join(src, 'plugin/plus'));
+Module._load = load;
+
+function fakePlus(paths) {
+  const files = new Map(paths.map((p) => [p, new TFile(p, '본문\n')]));
+  const st = {};
+  const g = { nextNeed: { level: 15, correct: 20 }, have: { correct: 0 } };
+  const seen = { baseline: [] };
+  const plugin = {
+    state: { get: (k) => st[k], set: (o) => Object.assign(st, o) },
+    collect: { addCorrect: () => g.have.correct++ },
+    pending: new Set(),
+    baselineFile: async (f, text) => seen.baseline.push([f.path, text]),
+    host: { gamify: { grant: () => {} }, recomputeGrowth: () => {}, growth: g, stageName: () => '공부 고양이' },
+    app: {
+      vault: {
+        getAbstractFileByPath: (p) => files.get(p) || null,
+        getMarkdownFiles: () => [...files.values()],
+        process: async (f, fn) => (f.text = fn(f.text)),
+        create: async (p, text) => {
+          if ([...files.keys()].some((k) => k.toLowerCase() === p.toLowerCase())) throw new Error('exists');
+          const f = new TFile(p, text);
+          files.set(p, f);
+          plugin.pending.add(p);
+          return f;
+        },
+      },
+      metadataCache: {
+        // 같은 이름이 둘 이상이면 경로로 (옵시디언처럼)
+        fileToLinktext: (f) => ([...files.values()].filter((x) => x.basename === f.basename).length > 1 ? f.path.replace(/\.md$/, '') : f.basename),
+      },
+    },
+  };
+  return { plus: new Plus(plugin), files, seen, plugin };
+}
+
+test('Plus.connect: 쓴 줄과 다음 단계까지 남은 수를 돌려주고, countCard 일 때만 이은 카드 +1', async () => {
+  const { plus } = fakePlus(['mq/Kafka.md']);
+  const a = await plus.connect('mq/Kafka.md', '背壓', '慢消費者', true);
+  assert.deepStrictEqual(a, { xp: 20, line: '- [[背壓]]：慢消費者', connectionsLeft: 19, nextStage: '공부 고양이' });
+  const b = await plus.connect('mq/Kafka.md', 'Pull', '拉', false);
+  assert.strictEqual(b.connectionsLeft, 19, '같은 카드의 두 번째 연결은 세지 않는다');
+  assert.strictEqual(plus.review().correct, 1);
+  assert.strictEqual(await plus.connect('mq/Kafka.md', 'X', '  ', true), null, '이유가 없으면 잇지 않는다');
+});
+
+test('Plus.writeCard: 같은 폴더에, 대소문자만 다른 이름도 피하고, 옵시디언 링크 이름으로 잇고, 지금 글을 기준으로 잡는다', async () => {
+  const { plus, files, seen, plugin } = fakePlus(['mq/Kafka.md', 'mq/kafka 背壓.md', 'a/背壓.md', 'b/背壓.md']);
+  const f = await plus.writeCard('mq/Kafka.md', 'b/背壓.md', 'Kafka 背壓');
+  assert.strictEqual(f.path, 'mq/Kafka 背壓 2.md');
+  assert.strictEqual(files.get(f.path).text, 'Kafka 背壓\n\n- [[Kafka]]\n- [[b/背壓]]\n');
+  assert.deepStrictEqual(seen.baseline, [[f.path, files.get(f.path).text]], '새 카드의 글은 새로 쓴 글로 세지 않는다');
+  assert.ok(!plugin.pending.has(f.path));
+  const root = await plus.writeCard('a/背壓.md', 'mq/Kafka.md', '根目錄?');
+  assert.strictEqual(root.path, 'a/根目錄.md');
+});
+
 test('appendLink: 노트 끝에 링크와 이유 한 줄, 이미 이어져 있으면 null, 링크 목록 뒤에는 바로 붙인다', () => {
   assert.strictEqual(connect.appendLink('본문\n', '背壓', '都在談流量控制'), '본문\n\n- [[背壓]]：都在談流量控制\n');
   assert.strictEqual(connect.appendLink('본문\n\n- [[背壓]]：a\n', 'Kafka', ''), '본문\n\n- [[背壓]]：a\n- [[Kafka]]\n');

@@ -20,6 +20,7 @@ Open **Connect cards** from the command palette, the status bar menu or your cat
 
 - Your cat brings back an old card with a few cards it might connect to: some related, some drawn at random. **Show other cards** draws a new set.
 - To connect, write **one line on why** they're related. The reason is required, because it's the part worth having. Plus adds `- [[Other card]]：your reason` to the end of the note.
+- After you connect, you see the line that was added, how many cards it's linked with now, and how close your cat is to its next form. **Write as a new card** turns your reason into a new note in the same folder, linked to both cards, so the connection becomes an idea of its own. At the end you get a list of the reasons you wrote.
 - There's no right or wrong. Linked or not, the card comes back a few days later, and cards with the fewest links come up first.
 
 ### Tidy links
@@ -212,7 +213,7 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 ## Privacy
 
 - Notes are **read** to count your writing. Their contents are never stored or sent anywhere, and the plugin makes no network requests. Plus shows a card's title and the start of its first paragraph inside its own **Connect cards** and taming windows.
-- Plus writes to a note only when you press **Connect** (it adds one link line at the end, see [Connect cards](#connect-cards)) or **Make it a link** in Tidy links (that one mention becomes a link). Nothing else edits your notes.
+- Plus writes to your notes only when you press **Connect** (it adds one link line at the end, see [Connect cards](#connect-cards)), **Write as a new card** (it creates one new note next to the card) or **Make it a link** in Tidy links (that one mention becomes a link). Nothing else creates or edits your notes.
 - Vault Pet never stores file and folder paths as-is: each part of a path is replaced by a short hash. **Plus is different:** its review schedule (which card is due when) and its record of links that already earned XP keep note paths and titles as they are, so with Plus your data file does show the names of your notes.
 - What is saved: for each note, its longest-ever character and link counts and a few feature counts (kept for a while after you delete a note, so restoring it doesn't count twice); hourly writing totals per top-level folder; your cat; and with Plus, the review schedule, the links that earned XP and your cats. All of it lives in `.obsidian/plugins/vault-pet-plus/data.json`.
 - A PNG is only created in your vault when you press **Save image** on the show-off card.
@@ -224,7 +225,7 @@ Vault Pet has no telemetry, so the only way to know what you like, what's broken
 | **List of notes in your vault** | To remember how long each note already is, so writing you did before installing never counts, and to catch up on notes changed while Obsidian was closed | Once on first run, then only notes whose modified time changed. Folders you untick in the settings are skipped |
 | **Reading notes** | To count new characters, links, tags, tasks, headings, embeds, callouts and properties. Plus also reads them to find due cards, link suggestions and taming questions | Vault Pet: only when a note changes. Plus: all notes every 10 minutes, and when you open **Connect cards**, **Tidy links** or **A stranger cat**. Contents are never stored |
 | **Links between notes, recent notes, open panes** | For the Home note map, the orphan-note quest, recent notes and pane-opening quests and badges, using what Obsidian already knows (its link index, recently opened files, which pane is active) | While Obsidian runs. Only counts are saved, plus short hashes of notes already counted as linked |
-| **Writing to notes (Plus)** | **Connect** adds a `- [[link]]：reason` line to the end of the card; **Make it a link** turns one plain mention into a link | Only when you press one of them, one note at a time. Plus never creates or deletes notes |
+| **Writing to notes (Plus)** | **Connect** adds a `- [[link]]：reason` line to the end of the card; **Write as a new card** creates a note in the card's folder with your reason and links to both cards; **Make it a link** turns one plain mention into a link | Only when you press one of them, one note at a time. Plus never deletes notes |
 | **Opening notes and the graph view** | Clicking a note on the Home, or the Local graph and Graph view buttons | Only when you click. It opens existing notes and Obsidian's own graph commands; it never creates notes |
 | **Clipboard (write)** | The **Copy image** and **Copy caption** buttons on the show-off card | Only when you press one of them |
 | **Text you paste or drop into a note** | So pasted text doesn't turn into XP and coins | Only at the moment you paste or drop it into a note. Only its length is measured; the text is never stored. Vault Pet never reads your clipboard at any other time |
@@ -267,12 +268,12 @@ After you update Vault Pet and close the **What's new** window in the Vault Pet 
 
 **Vault Pet Plus** 是 Vault Pet 的個人分支，把每則筆記當成卡片盒裡的一張卡：
 
-- **串連卡片**：貓叼回一張舊卡（標題和第一段開頭），附上通常兩張相關、兩張隨機抽到的卡片。寫一句「為什麼相關」才能連起來，連結會加在筆記尾端。
+- **串連卡片**：貓叼回一張舊卡（標題和第一段開頭），附上通常兩張相關、兩張隨機抽到的卡片。寫一句「為什麼相關」才能連起來，連結會加在筆記尾端。連完可以按「寫成新卡片」，把理由變成同一個資料夾裡的新筆記，連回這兩張卡。
 - **整理連結**：把筆記裡以純文字出現的標題改成連結，只改你按下的那幾處。
 - **陌生的貓**：寫作習慣有時會引來牠。收服的題目大多來自你寫過的理由，不夠時改問哪張卡和它連在一起。收服的貓收進貓咪圖鑑，可以隨時帶在身邊，各自成長。
 - **進化**：需要等級和牠喜歡的習慣，每一階段都是新的外形（輪廓、尾巴、翅膀或光環等），第二、三階段還有專屬動作；進化後不會退回。
 - **繁體中文介面**：整個中文介面都是繁體中文。
-- **和原版不同**：Plus 只在你按下按鈕時寫入筆記，但會以原始的筆記路徑和標題記下複習排程，並每 10 分鐘讀一次所有筆記。詳見英文的 Privacy 一節。
+- **和原版不同**：Plus 只在你按下按鈕時寫入或新建筆記，但會以原始的筆記路徑和標題記下複習排程，並每 10 分鐘讀一次所有筆記。詳見英文的 Privacy 一節。
 
 以下是原版 Vault Pet 的簡體中文說明。
 

@@ -104,13 +104,36 @@ function neighborQuiz(notes, nb, rand = Math.random, n = 3, size = 4) {
   return out;
 }
 
+// 링크 한 줄: '- [[대상]]：이유' (이유의 줄바꿈 · 겹친 공백은 한 칸으로)
+function linkLine(target, reason = '') {
+  const why = String(reason).replace(/\s+/g, ' ').trim();
+  return `- [[${target}]]${why ? `：${why}` : ''}`;
+}
+
 // 노트 끝에 링크 한 줄. 이미 그 카드로 가는 링크가 있으면 null. 끝이 링크 목록이면 바로 이어 붙인다
 function appendLink(text, target, reason = '') {
   if (text.includes(`[[${target}]]`) || text.includes(`[[${target}|`)) return null;
   const body = text.replace(/\s+$/, '');
-  const why = String(reason).replace(/\s+/g, ' ').trim();
   const last = body.split('\n').pop() || '';
-  return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}- [[${target}]]${why ? `：${why}` : ''}\n`;
+  return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}${linkLine(target, reason)}\n`;
 }
 
-module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, reasonsOf, reasonQuiz, appendLink };
+// 이유를 새 카드로: 이유가 첫 줄, 두 카드로 가는 링크 (from · to 는 링크 이름). 제목은 이유에서 파일 이름에 못 쓰는 글자를 뺀 것
+// (60자까지, 이모지를 반으로 자르지 않는다. 앞의 점(숨김 파일) · 끝의 점과 공백(윈도에서 못 쓴다)도 뺀다)
+const TITLE_MAX = 60;
+function newCard(reason, from, to) {
+  const body = String(reason).replace(/\s+/g, ' ').trim();
+  const safe = body.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ');
+  const title = Array.from(safe.trim()).slice(0, TITLE_MAX).join('').replace(/^[.\s]+/, '').replace(/[.\s]+$/, '') || `${from} × ${to}`;
+  return { title, text: `${body}\n\n- [[${from}]]\n- [[${to}]]\n` };
+}
+
+// 폴더 안에서 아직 없는 경로. 겹치면 '제목 2' · '제목 3' …
+function freePath(folder, title, taken) {
+  const at = (name) => `${folder ? folder + '/' : ''}${name}.md`;
+  let n = 1;
+  while (taken(at(n === 1 ? title : `${title} ${n}`))) n++;
+  return at(n === 1 ? title : `${title} ${n}`);
+}
+
+module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, reasonsOf, reasonQuiz, linkLine, appendLink, newCard, freePath };

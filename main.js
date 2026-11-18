@@ -1,5 +1,5 @@
 /*
- * Vault Pet 2.7.0-plus.0 — Obsidian plugin (built 2026-11-17)
+ * Vault Pet 2.7.0-plus.0 — Obsidian plugin (built 2026-11-18)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -1200,16 +1200,39 @@ function neighborQuiz(notes, nb, rand = Math.random, n = 3, size = 4) {
   return out;
 }
 
+// 링크 한 줄: '- [[대상]]：이유' (이유의 줄바꿈 · 겹친 공백은 한 칸으로)
+function linkLine(target, reason = '') {
+  const why = String(reason).replace(/\s+/g, ' ').trim();
+  return `- [[${target}]]${why ? `：${why}` : ''}`;
+}
+
 // 노트 끝에 링크 한 줄. 이미 그 카드로 가는 링크가 있으면 null. 끝이 링크 목록이면 바로 이어 붙인다
 function appendLink(text, target, reason = '') {
   if (text.includes(`[[${target}]]`) || text.includes(`[[${target}|`)) return null;
   const body = text.replace(/\s+$/, '');
-  const why = String(reason).replace(/\s+/g, ' ').trim();
   const last = body.split('\n').pop() || '';
-  return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}- [[${target}]]${why ? `：${why}` : ''}\n`;
+  return `${body}${body ? (/^- \[\[/.test(last) ? '\n' : '\n\n') : ''}${linkLine(target, reason)}\n`;
 }
 
-module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, reasonsOf, reasonQuiz, appendLink };
+// 이유를 새 카드로: 이유가 첫 줄, 두 카드로 가는 링크 (from · to 는 링크 이름). 제목은 이유에서 파일 이름에 못 쓰는 글자를 뺀 것
+// (60자까지, 이모지를 반으로 자르지 않는다. 앞의 점(숨김 파일) · 끝의 점과 공백(윈도에서 못 쓴다)도 뺀다)
+const TITLE_MAX = 60;
+function newCard(reason, from, to) {
+  const body = String(reason).replace(/\s+/g, ' ').trim();
+  const safe = body.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ');
+  const title = Array.from(safe.trim()).slice(0, TITLE_MAX).join('').replace(/^[.\s]+/, '').replace(/[.\s]+$/, '') || `${from} × ${to}`;
+  return { title, text: `${body}\n\n- [[${from}]]\n- [[${to}]]\n` };
+}
+
+// 폴더 안에서 아직 없는 경로. 겹치면 '제목 2' · '제목 3' …
+function freePath(folder, title, taken) {
+  const at = (name) => `${folder ? folder + '/' : ''}${name}.md`;
+  let n = 1;
+  while (taken(at(n === 1 ? title : `${title} ${n}`))) n++;
+  return at(n === 1 ? title : `${title} ${n}`);
+}
+
+module.exports = { excerptOf, neighborsOf, candidates, neighborQuiz, reasonsOf, reasonQuiz, linkLine, appendLink, newCard, freePath };
 
 };
 
@@ -8897,10 +8920,11 @@ class KitCommitPlugin extends Plugin {
     this.meta.canvasText = true;
   }
 
-  async baselineFile(f) {
+  // text 를 주면 그 글로 (방금 만든 노트는 캐시가 아직 비어 있을 수 있다)
+  async baselineFile(f, text) {
     if (this.isExcludedPath(f.path)) return;
     try {
-      this.usage.observe(f.path, this.measureOf(f, await this.app.vault.cachedRead(f)), new Date(), { mtime: f.stat.mtime, baseline: true });
+      this.usage.observe(f.path, this.measureOf(f, text != null ? text : await this.app.vault.cachedRead(f)), new Date(), { mtime: f.stat.mtime, baseline: true });
       this.saveSoon();
     } catch {
       // 못 읽으면 다음 기회에 (그때는 상한 안에서 센다)
@@ -9725,6 +9749,7 @@ class ReviewModal extends Modal {
     this.i = 0;
     this.links = 0;
     this.xp = 0;
+    this.reasons = []; // 이번에 적은 이유 { from, to, reason } (끝에 모아 보여 준다)
   }
 
   t(k, v) {
@@ -9740,15 +9765,16 @@ class ReviewModal extends Modal {
   onClose() {
     if (this.cat) this.cat.destroy();
     this.contentEl.empty();
-    // 이어 놓고 '다음'을 안 누른 채 닫아도 그 카드는 본 것으로 (이은 것이 '이은 카드' 수에 들어가게)
+    // 이어 놓고 '다음'을 안 누른 채 닫아도 그 카드는 본 것으로 (다음 상자로)
     if (this.linkedHere > 0 && this.i < this.cards.length) this.done(this.cards[this.i]);
     this.plus.finish(this.links, this.i);
   }
 
-  // 카드 한 장을 다 봤다: 다음 상자로 · 이번에 이었으면 '이은 카드' +1
+  // 카드 한 장을 다 봤다: 다음 상자로
   done(c) {
-    this.plus.visit(c.key, this.linkedHere);
+    this.plus.visit(c.key);
     this.linkedHere = 0;
+    this.countedHere = false;
     this.i++;
   }
 
@@ -9765,11 +9791,18 @@ class ReviewModal extends Modal {
     if (this.i >= this.cards.length) {
       this.titleEl.setText(this.t('plus.cmdReview'));
       el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { total: this.cards.length, links: this.links, xp: this.xp }) });
+      // 이번에 적은 이유들: 오늘 생각해 낸 것
+      if (this.reasons.length) {
+        el.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reasonsTitle') });
+        const list = el.createEl('ul', { cls: 'vpp-reasons' });
+        for (const x of this.reasons) list.createEl('li', { text: `${x.from} → ${x.to}：${x.reason}` });
+      }
       new Setting(el).addButton((b) => b.setButtonText('OK').setCta().onClick(() => this.close()));
       return;
     }
     const c = this.cards[this.i];
     this.linkedHere = 0;
+    this.countedHere = false; // 이 카드를 '이은 카드'로 셌는지 (잇기를 기다리는 사이에 또 눌러도 한 번만)
     this.shown = c.candidates.map((x) => x.path);
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
     const stage = el.createDiv({ cls: 'vpp-stage' });
@@ -9816,6 +9849,33 @@ class ReviewModal extends Modal {
     }
   }
 
+  // 이은 뒤: 노트에 쓴 줄 · 이제 몇 장과 이어졌는지 · 다음 단계까지 · 이유를 새 카드로
+  showResult(c, o, box, reason, res) {
+    box.createEl('p', { cls: 'vpp-result vpp-right', text: res.xp ? this.t('plus.connected', { xp: res.xp }) : this.t('plus.connectedNoXp') });
+    box.createDiv({ cls: 'vpp-line', text: res.line });
+    const notes = [this.t('plus.linkedNow', { n: c.linked + this.linkedHere })];
+    if (res.connectionsLeft !== null) {
+      notes.push(res.connectionsLeft > 0 ? this.t('plus.left', { n: res.connectionsLeft, stage: res.nextStage }) : this.t('plus.ready', { stage: res.nextStage }));
+    }
+    box.createDiv({ cls: 'vpp-why', text: notes.join(' · ') });
+    const row = new Setting(box).addButton((b) =>
+      b.setButtonText(this.t('plus.newCard')).onClick(async () => {
+        b.setDisabled(true);
+        const f = await this.plus.writeCard(c.path, o.path, reason);
+        row.settingEl.remove();
+        if (!f) {
+          box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.cardFail') });
+          return;
+        }
+        const made = box.createEl('p', { cls: 'vpp-result vpp-right' });
+        made.createEl('a', { text: this.t('plus.cardMade', { title: f.basename }), href: '#' }).addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(f.path, '', true);
+        });
+      }),
+    );
+  }
+
   // 왜 이어지는지 한 줄 (비우면 잇지 않는다). 이유를 적는 것이 이 복습의 알맹이고, 길들이기 문제로 다시 나온다
   askReason(c, o, box, row) {
     row.settingEl.remove();
@@ -9827,18 +9887,23 @@ class ReviewModal extends Modal {
         return;
       }
       input.disabled = true;
-      const xp = await this.plus.connect(c.path, o.title, input.value);
+      const reason = input.value.trim();
+      const countCard = !this.countedHere;
+      this.countedHere = true;
+      const res = await this.plus.connect(c.path, o.title, reason, countCard);
       input.remove();
       act.settingEl.remove();
-      if (xp === null) {
+      if (res === null) {
+        if (countCard) this.countedHere = false;
         box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.connectFail') });
         return;
       }
       this.links++;
       this.linkedHere++;
-      this.xp += xp;
+      this.xp += res.xp;
+      this.reasons.push({ from: c.title, to: o.title, reason });
       if (this.cat) this.cat.act('right');
-      box.createEl('p', { cls: 'vpp-result vpp-right', text: this.t('plus.connected', { xp }) });
+      this.showResult(c, o, box, reason, res);
     };
     const act = new Setting(box).addButton((b) => b.setButtonText(this.t('plus.connect')).setCta().onClick(go));
     // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 확인이 아니다
@@ -9909,12 +9974,12 @@ __defs["plugin/plus"] = function (module, exports, require) {
 /*
  * [Plus] 카드 잇기(옛 카드 다시 보기) · 링크 정리 · 원래 Vault Pet 기록 가져오기.
  * 로직은 core/connect.js · core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
- * 노트를 고치는 건 applyTidy · connect 둘뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
+ * 노트를 고치는 건 applyTidy · connect, 새로 만드는 건 writeCard 뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
  */
 const obsidian = require('obsidian');
 const { TFile } = obsidian;
 const { schedule, syncDeck, renameInDeck, dueToday, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
-const { excerptOf, neighborsOf, candidates, neighborQuiz, reasonQuiz, appendLink } = require('../core/connect');
+const { excerptOf, neighborsOf, candidates, neighborQuiz, reasonQuiz, linkLine, appendLink, newCard, freePath } = require('../core/connect');
 const { findMentions, applyLink } = require('../core/tidy');
 const { loadSafe } = require('./safedata');
 
@@ -10016,7 +10081,7 @@ class Plus {
         path: note.path,
         title: note.title,
         question: excerptOf(note.text),
-        linked: (nb[note.path] || new Set()).size,
+        linked: degree[note.path] || 0,
         candidates: candidates(note, notes, nb),
         more: (skip) => candidates(note, notes, nb, Math.random, 4, skip),
       }));
@@ -10024,9 +10089,10 @@ class Plus {
     return out;
   }
 
-  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 이유가 없으면 잇지 않는다. 같은 연결은 한 번만 경험치
-  // ('이은 카드' 수는 visit 에서 카드당 한 번만 센다 — 링크를 많이 이을수록 진화하는 게 아니다)
-  async connect(path, target, reason) {
+  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 이유가 없으면 잇지 않는다. 같은 연결은 한 번만 경험치.
+  // countCard = 이번에 이 카드에서 처음 이은 것: '이은 카드' +1 (카드당 한 번 — 링크를 많이 이을수록 진화하는 게 아니다)
+  // → null (못 이음) 또는 { xp, line 쓴 줄, connectionsLeft 다음 단계까지 남은 '이은 카드' 수 (조건에 없으면 null), nextStage 다음 단계 이름 }
+  async connect(path, target, reason, countCard = false) {
     if (!String(reason || '').trim()) return null;
     const f = this.plugin.app.vault.getAbstractFileByPath(path);
     if (!(f instanceof TFile)) return null;
@@ -10039,20 +10105,50 @@ class Plus {
     if (!ok) return null;
     const r = this.review();
     const key = `${path}\n${target}`;
-    if (r.paid[key]) return 0;
-    this.setReview({ paid: { ...r.paid, [key]: Date.now() } });
-    this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
+    const xp = r.paid[key] ? 0 : CONNECT_XP;
+    this.setReview({ paid: xp ? { ...r.paid, [key]: Date.now() } : r.paid, correct: r.correct + (countCard ? 1 : 0) });
+    if (countCard && this.plugin.collect) this.plugin.collect.addCorrect();
+    if (xp) this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
-    return CONNECT_XP;
+    const g = this.host.growth;
+    const need = g && g.nextNeed && g.nextNeed.correct;
+    return {
+      xp,
+      line: linkLine(target, reason),
+      connectionsLeft: need ? Math.max(0, need - (g.have.correct || 0)) : null,
+      nextStage: need ? this.host.stageName(g, true) : '',
+    };
   }
 
-  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1. 이번에 하나라도 이었으면 '이은 카드' +1
-  visit(key, linked = 0) {
+  // 이유를 새 카드로: 원래 카드(path)와 같은 폴더에 새 노트를 만든다 (이유가 첫 줄, 두 카드로 링크). 사용자가 버튼을 눌렀을 때만.
+  // → 만든 노트 (TFile), 못 만들면 null
+  async writeCard(path, targetPath, reason) {
+    const { vault, metadataCache } = this.plugin.app;
+    const from = vault.getAbstractFileByPath(path);
+    const to = vault.getAbstractFileByPath(targetPath);
+    if (!(from instanceof TFile) || !(to instanceof TFile)) return null;
+    const folder = from.parent && from.parent.path !== '/' ? from.parent.path : '';
+    // 대소문자만 다른 이름도 겹친 것으로 본다 (맥 · 윈도 파일 시스템)
+    const taken = new Set(vault.getMarkdownFiles().map((f) => f.path.toLowerCase()));
+    const at = freePath(folder, newCard(reason, from.basename, to.basename).title, (p) => taken.has(p.toLowerCase()));
+    // 링크 이름은 옵시디언이 정한다 (같은 이름의 노트가 여러 폴더에 있으면 경로로)
+    const { text } = newCard(reason, metadataCache.fileToLinktext(from, at), metadataCache.fileToLinktext(to, at));
+    try {
+      const f = await vault.create(at, text);
+      // 이유는 이미 원래 카드에 쓴 글로 셌다. 새 카드는 지금 글을 기준으로만 잡는다 (그 뒤에 더 쓰는 글만 센다)
+      if (this.plugin.pending) this.plugin.pending.delete(at);
+      if (this.plugin.baselineFile) await this.plugin.baselineFile(f, text);
+      return f;
+    } catch {
+      return null;
+    }
+  }
+
+  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1
+  visit(key) {
     const r = this.review();
     const today = dayNum();
-    if (linked > 0 && this.plugin.collect) this.plugin.collect.addCorrect();
     this.setReview({
-      correct: r.correct + (linked > 0 ? 1 : 0),
       deck: { ...r.deck, [key]: schedule(r.deck[key] || { b: 0, due: today }, today) },
       done: r.done + 1,
       today: { day: today, n: this.doneToday() + 1 },
@@ -23902,6 +23998,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': '잇기',
       'plus.reason': '왜 이어지나요? (한 줄 적어야 이어져요)',
       'plus.connected': '이었어요! +{xp} XP',
+      'plus.connectedNoXp': '이었어요!',
+      'plus.linkedNow': '이제 {n}장과 이어졌어요',
+      'plus.left': '{stage}까지 이은 카드 {n}장 남았어요',
+      'plus.ready': '{stage}에 필요한 이은 카드를 다 채웠어요',
+      'plus.newCard': '새 카드로 쓰기',
+      'plus.cardMade': '새 카드 [[{title}]] 를 만들었어요 (눌러서 열기)',
+      'plus.cardFail': '새 카드를 만들지 못했어요',
+      'plus.reasonsTitle': '오늘 적은 이유',
       'plus.connectFail': '노트가 방금 바뀌었거나 이미 이어져 있어요',
       'plus.reshuffle': '다른 카드 보기',
       'plus.noCands': '이을 만한 카드를 못 찾았어요',
@@ -23993,6 +24097,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': 'Connect',
       'plus.reason': 'Why are they related? (one line, required)',
       'plus.connected': 'Connected! +{xp} XP',
+      'plus.connectedNoXp': 'Connected!',
+      'plus.linkedNow': 'Now linked with {n} cards',
+      'plus.left': '{n} more connections to {stage}',
+      'plus.ready': 'Enough connections for {stage}',
+      'plus.newCard': 'Write as a new card',
+      'plus.cardMade': 'Made a new card [[{title}]] (click to open)',
+      'plus.cardFail': "Couldn't make the new card",
+      'plus.reasonsTitle': 'Reasons you wrote',
       'plus.connectFail': 'The note just changed or is already linked',
       'plus.reshuffle': 'Show other cards',
       'plus.noCands': 'No cards to suggest',
@@ -24084,6 +24196,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': '連起來',
       'plus.reason': '為什麼相關？（寫一句才能連）',
       'plus.connected': '連起來了！+{xp} XP',
+      'plus.connectedNoXp': '連起來了！',
+      'plus.linkedNow': '現在連著 {n} 張卡',
+      'plus.left': '距離{stage}還差 {n} 次連結',
+      'plus.ready': '{stage}需要的連結已經夠了',
+      'plus.newCard': '寫成新卡片',
+      'plus.cardMade': '建立了新卡片 [[{title}]]（點一下開啟）',
+      'plus.cardFail': '沒能建立新卡片',
+      'plus.reasonsTitle': '這次寫下的理由',
       'plus.connectFail': '筆記剛被改過，或已經連結了',
       'plus.reshuffle': '換一批',
       'plus.noCands': '找不到可以推薦的卡片',
@@ -40463,6 +40583,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': '잇기',
       'plus.reason': '왜 이어지나요? (한 줄 적어야 이어져요)',
       'plus.connected': '이었어요! +{xp} XP',
+      'plus.connectedNoXp': '이었어요!',
+      'plus.linkedNow': '이제 {n}장과 이어졌어요',
+      'plus.left': '{stage}까지 이은 카드 {n}장 남았어요',
+      'plus.ready': '{stage}에 필요한 이은 카드를 다 채웠어요',
+      'plus.newCard': '새 카드로 쓰기',
+      'plus.cardMade': '새 카드 [[{title}]] 를 만들었어요 (눌러서 열기)',
+      'plus.cardFail': '새 카드를 만들지 못했어요',
+      'plus.reasonsTitle': '오늘 적은 이유',
       'plus.connectFail': '노트가 방금 바뀌었거나 이미 이어져 있어요',
       'plus.reshuffle': '다른 카드 보기',
       'plus.noCands': '이을 만한 카드를 못 찾았어요',
@@ -40554,6 +40682,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': 'Connect',
       'plus.reason': 'Why are they related? (one line, required)',
       'plus.connected': 'Connected! +{xp} XP',
+      'plus.connectedNoXp': 'Connected!',
+      'plus.linkedNow': 'Now linked with {n} cards',
+      'plus.left': '{n} more connections to {stage}',
+      'plus.ready': 'Enough connections for {stage}',
+      'plus.newCard': 'Write as a new card',
+      'plus.cardMade': 'Made a new card [[{title}]] (click to open)',
+      'plus.cardFail': "Couldn't make the new card",
+      'plus.reasonsTitle': 'Reasons you wrote',
       'plus.connectFail': 'The note just changed or is already linked',
       'plus.reshuffle': 'Show other cards',
       'plus.noCands': 'No cards to suggest',
@@ -40645,6 +40781,14 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'plus.connect': '連起來',
       'plus.reason': '為什麼相關？（寫一句才能連）',
       'plus.connected': '連起來了！+{xp} XP',
+      'plus.connectedNoXp': '連起來了！',
+      'plus.linkedNow': '現在連著 {n} 張卡',
+      'plus.left': '距離{stage}還差 {n} 次連結',
+      'plus.ready': '{stage}需要的連結已經夠了',
+      'plus.newCard': '寫成新卡片',
+      'plus.cardMade': '建立了新卡片 [[{title}]]（點一下開啟）',
+      'plus.cardFail': '沒能建立新卡片',
+      'plus.reasonsTitle': '這次寫下的理由',
       'plus.connectFail': '筆記剛被改過，或已經連結了',
       'plus.reshuffle': '換一批',
       'plus.noCands': '找不到可以推薦的卡片',

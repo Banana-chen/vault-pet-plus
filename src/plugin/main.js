@@ -673,10 +673,11 @@ class KitCommitPlugin extends Plugin {
     this.meta.canvasText = true;
   }
 
-  async baselineFile(f) {
+  // text 를 주면 그 글로 (방금 만든 노트는 캐시가 아직 비어 있을 수 있다)
+  async baselineFile(f, text) {
     if (this.isExcludedPath(f.path)) return;
     try {
-      this.usage.observe(f.path, this.measureOf(f, await this.app.vault.cachedRead(f)), new Date(), { mtime: f.stat.mtime, baseline: true });
+      this.usage.observe(f.path, this.measureOf(f, text != null ? text : await this.app.vault.cachedRead(f)), new Date(), { mtime: f.stat.mtime, baseline: true });
       this.saveSoon();
     } catch {
       // 못 읽으면 다음 기회에 (그때는 상한 안에서 센다)

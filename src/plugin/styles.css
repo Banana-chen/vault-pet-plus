@@ -214,6 +214,17 @@ iframe.kitcommit-frame:not(#kitcommit-none) {
 .vpp-modal .vpp-input {
   width: 100%;
 }
+.vpp-modal .vpp-line {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  word-break: break-word;
+}
+.vpp-modal .vpp-reasons li {
+  margin: 2px 0;
+}
 .vpp-modal .vpp-input.vpp-need {
   border-color: var(--color-red);
 }

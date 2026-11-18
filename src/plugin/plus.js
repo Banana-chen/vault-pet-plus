@@ -2,12 +2,12 @@
 /*
  * [Plus] 카드 잇기(옛 카드 다시 보기) · 링크 정리 · 원래 Vault Pet 기록 가져오기.
  * 로직은 core/connect.js · core/review.js · core/tidy.js, 화면은 plugin/plus-modals.js. 여기는 옵시디언 · 고양이(host)와 잇는 자리다.
- * 노트를 고치는 건 applyTidy · connect 둘뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
+ * 노트를 고치는 건 applyTidy · connect, 새로 만드는 건 writeCard 뿐이고, 사용자가 버튼을 눌렀을 때만 부른다.
  */
 const obsidian = require('obsidian');
 const { TFile } = obsidian;
 const { schedule, syncDeck, renameInDeck, dueToday, dayNum, DAILY_CAP, REVIEW_XP } = require('../core/review');
-const { excerptOf, neighborsOf, candidates, neighborQuiz, reasonQuiz, appendLink } = require('../core/connect');
+const { excerptOf, neighborsOf, candidates, neighborQuiz, reasonQuiz, linkLine, appendLink, newCard, freePath } = require('../core/connect');
 const { findMentions, applyLink } = require('../core/tidy');
 const { loadSafe } = require('./safedata');
 
@@ -109,7 +109,7 @@ class Plus {
         path: note.path,
         title: note.title,
         question: excerptOf(note.text),
-        linked: (nb[note.path] || new Set()).size,
+        linked: degree[note.path] || 0,
         candidates: candidates(note, notes, nb),
         more: (skip) => candidates(note, notes, nb, Math.random, 4, skip),
       }));
@@ -117,9 +117,10 @@ class Plus {
     return out;
   }
 
-  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 이유가 없으면 잇지 않는다. 같은 연결은 한 번만 경험치
-  // ('이은 카드' 수는 visit 에서 카드당 한 번만 센다 — 링크를 많이 이을수록 진화하는 게 아니다)
-  async connect(path, target, reason) {
+  // 이 카드(path) 끝에 target 으로 가는 링크 한 줄을 쓴다. 이유가 없으면 잇지 않는다. 같은 연결은 한 번만 경험치.
+  // countCard = 이번에 이 카드에서 처음 이은 것: '이은 카드' +1 (카드당 한 번 — 링크를 많이 이을수록 진화하는 게 아니다)
+  // → null (못 이음) 또는 { xp, line 쓴 줄, connectionsLeft 다음 단계까지 남은 '이은 카드' 수 (조건에 없으면 null), nextStage 다음 단계 이름 }
+  async connect(path, target, reason, countCard = false) {
     if (!String(reason || '').trim()) return null;
     const f = this.plugin.app.vault.getAbstractFileByPath(path);
     if (!(f instanceof TFile)) return null;
@@ -132,20 +133,50 @@ class Plus {
     if (!ok) return null;
     const r = this.review();
     const key = `${path}\n${target}`;
-    if (r.paid[key]) return 0;
-    this.setReview({ paid: { ...r.paid, [key]: Date.now() } });
-    this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
+    const xp = r.paid[key] ? 0 : CONNECT_XP;
+    this.setReview({ paid: xp ? { ...r.paid, [key]: Date.now() } : r.paid, correct: r.correct + (countCard ? 1 : 0) });
+    if (countCard && this.plugin.collect) this.plugin.collect.addCorrect();
+    if (xp) this.host.gamify.grant(CONNECT_XP, { k: 'bonus.review', v: {} });
     this.host.recomputeGrowth();
-    return CONNECT_XP;
+    const g = this.host.growth;
+    const need = g && g.nextNeed && g.nextNeed.correct;
+    return {
+      xp,
+      line: linkLine(target, reason),
+      connectionsLeft: need ? Math.max(0, need - (g.have.correct || 0)) : null,
+      nextStage: need ? this.host.stageName(g, true) : '',
+    };
   }
 
-  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1. 이번에 하나라도 이었으면 '이은 카드' +1
-  visit(key, linked = 0) {
+  // 이유를 새 카드로: 원래 카드(path)와 같은 폴더에 새 노트를 만든다 (이유가 첫 줄, 두 카드로 링크). 사용자가 버튼을 눌렀을 때만.
+  // → 만든 노트 (TFile), 못 만들면 null
+  async writeCard(path, targetPath, reason) {
+    const { vault, metadataCache } = this.plugin.app;
+    const from = vault.getAbstractFileByPath(path);
+    const to = vault.getAbstractFileByPath(targetPath);
+    if (!(from instanceof TFile) || !(to instanceof TFile)) return null;
+    const folder = from.parent && from.parent.path !== '/' ? from.parent.path : '';
+    // 대소문자만 다른 이름도 겹친 것으로 본다 (맥 · 윈도 파일 시스템)
+    const taken = new Set(vault.getMarkdownFiles().map((f) => f.path.toLowerCase()));
+    const at = freePath(folder, newCard(reason, from.basename, to.basename).title, (p) => taken.has(p.toLowerCase()));
+    // 링크 이름은 옵시디언이 정한다 (같은 이름의 노트가 여러 폴더에 있으면 경로로)
+    const { text } = newCard(reason, metadataCache.fileToLinktext(from, at), metadataCache.fileToLinktext(to, at));
+    try {
+      const f = await vault.create(at, text);
+      // 이유는 이미 원래 카드에 쓴 글로 셌다. 새 카드는 지금 글을 기준으로만 잡는다 (그 뒤에 더 쓰는 글만 센다)
+      if (this.plugin.pending) this.plugin.pending.delete(at);
+      if (this.plugin.baselineFile) await this.plugin.baselineFile(f, text);
+      return f;
+    } catch {
+      return null;
+    }
+  }
+
+  // 카드 한 장을 다 봤다 (이었든 넘겼든): 다음 상자로, 오늘 본 수 +1
+  visit(key) {
     const r = this.review();
     const today = dayNum();
-    if (linked > 0 && this.plugin.collect) this.plugin.collect.addCorrect();
     this.setReview({
-      correct: r.correct + (linked > 0 ? 1 : 0),
       deck: { ...r.deck, [key]: schedule(r.deck[key] || { b: 0, due: today }, today) },
       done: r.done + 1,
       today: { day: today, n: this.doneToday() + 1 },

@@ -21,6 +21,7 @@ class ReviewModal extends Modal {
     this.i = 0;
     this.links = 0;
     this.xp = 0;
+    this.reasons = []; // 이번에 적은 이유 { from, to, reason } (끝에 모아 보여 준다)
   }
 
   t(k, v) {
@@ -36,15 +37,16 @@ class ReviewModal extends Modal {
   onClose() {
     if (this.cat) this.cat.destroy();
     this.contentEl.empty();
-    // 이어 놓고 '다음'을 안 누른 채 닫아도 그 카드는 본 것으로 (이은 것이 '이은 카드' 수에 들어가게)
+    // 이어 놓고 '다음'을 안 누른 채 닫아도 그 카드는 본 것으로 (다음 상자로)
     if (this.linkedHere > 0 && this.i < this.cards.length) this.done(this.cards[this.i]);
     this.plus.finish(this.links, this.i);
   }
 
-  // 카드 한 장을 다 봤다: 다음 상자로 · 이번에 이었으면 '이은 카드' +1
+  // 카드 한 장을 다 봤다: 다음 상자로
   done(c) {
-    this.plus.visit(c.key, this.linkedHere);
+    this.plus.visit(c.key);
     this.linkedHere = 0;
+    this.countedHere = false;
     this.i++;
   }
 
@@ -61,11 +63,18 @@ class ReviewModal extends Modal {
     if (this.i >= this.cards.length) {
       this.titleEl.setText(this.t('plus.cmdReview'));
       el.createEl('p', { cls: 'vpp-result', text: this.t('plus.summary', { total: this.cards.length, links: this.links, xp: this.xp }) });
+      // 이번에 적은 이유들: 오늘 생각해 낸 것
+      if (this.reasons.length) {
+        el.createEl('p', { cls: 'setting-item-description', text: this.t('plus.reasonsTitle') });
+        const list = el.createEl('ul', { cls: 'vpp-reasons' });
+        for (const x of this.reasons) list.createEl('li', { text: `${x.from} → ${x.to}：${x.reason}` });
+      }
       new Setting(el).addButton((b) => b.setButtonText('OK').setCta().onClick(() => this.close()));
       return;
     }
     const c = this.cards[this.i];
     this.linkedHere = 0;
+    this.countedHere = false; // 이 카드를 '이은 카드'로 셌는지 (잇기를 기다리는 사이에 또 눌러도 한 번만)
     this.shown = c.candidates.map((x) => x.path);
     this.titleEl.setText(this.t('plus.reviewTitle', { i: this.i + 1, total: this.cards.length }));
     const stage = el.createDiv({ cls: 'vpp-stage' });
@@ -112,6 +121,33 @@ class ReviewModal extends Modal {
     }
   }
 
+  // 이은 뒤: 노트에 쓴 줄 · 이제 몇 장과 이어졌는지 · 다음 단계까지 · 이유를 새 카드로
+  showResult(c, o, box, reason, res) {
+    box.createEl('p', { cls: 'vpp-result vpp-right', text: res.xp ? this.t('plus.connected', { xp: res.xp }) : this.t('plus.connectedNoXp') });
+    box.createDiv({ cls: 'vpp-line', text: res.line });
+    const notes = [this.t('plus.linkedNow', { n: c.linked + this.linkedHere })];
+    if (res.connectionsLeft !== null) {
+      notes.push(res.connectionsLeft > 0 ? this.t('plus.left', { n: res.connectionsLeft, stage: res.nextStage }) : this.t('plus.ready', { stage: res.nextStage }));
+    }
+    box.createDiv({ cls: 'vpp-why', text: notes.join(' · ') });
+    const row = new Setting(box).addButton((b) =>
+      b.setButtonText(this.t('plus.newCard')).onClick(async () => {
+        b.setDisabled(true);
+        const f = await this.plus.writeCard(c.path, o.path, reason);
+        row.settingEl.remove();
+        if (!f) {
+          box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.cardFail') });
+          return;
+        }
+        const made = box.createEl('p', { cls: 'vpp-result vpp-right' });
+        made.createEl('a', { text: this.t('plus.cardMade', { title: f.basename }), href: '#' }).addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(f.path, '', true);
+        });
+      }),
+    );
+  }
+
   // 왜 이어지는지 한 줄 (비우면 잇지 않는다). 이유를 적는 것이 이 복습의 알맹이고, 길들이기 문제로 다시 나온다
   askReason(c, o, box, row) {
     row.settingEl.remove();
@@ -123,18 +159,23 @@ class ReviewModal extends Modal {
         return;
       }
       input.disabled = true;
-      const xp = await this.plus.connect(c.path, o.title, input.value);
+      const reason = input.value.trim();
+      const countCard = !this.countedHere;
+      this.countedHere = true;
+      const res = await this.plus.connect(c.path, o.title, reason, countCard);
       input.remove();
       act.settingEl.remove();
-      if (xp === null) {
+      if (res === null) {
+        if (countCard) this.countedHere = false;
         box.createEl('p', { cls: 'vpp-result vpp-wrong', text: this.t('plus.connectFail') });
         return;
       }
       this.links++;
       this.linkedHere++;
-      this.xp += xp;
+      this.xp += res.xp;
+      this.reasons.push({ from: c.title, to: o.title, reason });
       if (this.cat) this.cat.act('right');
-      box.createEl('p', { cls: 'vpp-result vpp-right', text: this.t('plus.connected', { xp }) });
+      this.showResult(c, o, box, reason, res);
     };
     const act = new Setting(box).addButton((b) => b.setButtonText(this.t('plus.connect')).setCta().onClick(go));
     // 중국어 입력기로 글자를 고르는 중(조합 중)에 누른 Enter 는 확인이 아니다

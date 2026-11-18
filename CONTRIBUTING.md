@@ -25,8 +25,8 @@ toys and quests that fit the cat's world are especially welcome as ideas.
 Three things are deliberately out of scope, so it saves time to say so:
 
 - **Anything that reaches the network.** The plugin makes no network requests
-  at all, and only writes to a note when you press **Connect** or **Make it
-  a link**; see the Privacy section of the README.
+  at all, and only writes or creates a note when you press **Connect**, **Write
+  as a new card** or **Make it a link**; see the Privacy section of the README.
 - **Ways to earn without writing.** Only real new writing counts — pasting,
   retyping and restoring deleted notes earn nothing. A change that lets them
   count will not be merged.
