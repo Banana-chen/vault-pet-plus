@@ -1471,6 +1471,17 @@ test('i18n zh: 물건 · 모션 이름이 다 있고, 로케일은 zh-TW', () =>
   assert.ok(T.line('hello', { name: '奇奇' }).includes('奇奇'));
 });
 
+test('i18n plus: Plus 글은 언어마다 번역돼 있다 (영어로 떨어지지 않는다)', () => {
+  const plusUi = Object.keys(I18N.UI.en).filter((k) => /^(plus|tame|cats|breed|stage|need)\.|^(quest\.(review|tidy)|bonus\.(review|tidy)|pet\.link(Review|Tidy|Tame|Cats)|tab\.cats)$/.test(k));
+  assert.ok(plusUi.length > 100, 'Plus 키를 찾았다');
+  const plusLines = ['reviewNudge', 'reviewDone', 'tidyFound', 'strayHere', 'tameWin'];
+  for (const lang of Object.keys(I18N.UI).filter((l) => l !== 'en')) {
+    const untranslated = plusUi.filter((k) => I18N.UI[lang][k] === I18N.UI.en[k] && /[a-z]{3}/i.test(I18N.UI.en[k]));
+    assert.deepStrictEqual(untranslated, [], `${lang} UI`);
+    for (const k of plusLines) assert.notDeepStrictEqual(I18N.LINE[lang][k], I18N.LINE.en[k], `${lang} LINE ${k}`);
+  }
+});
+
 test('legacy · 설정: 언어 zh 를 받아들인다', async () => {
   assert.strictEqual(legacyMod.legacySettings({ settings: { language: 'zh' } }).language, 'zh');
   const { host } = makeHost();
