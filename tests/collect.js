@@ -38,6 +38,9 @@ test('breeds: 단계마다 네 언어 이름 · 그림 · 전용 모션이 있�
   for (const f of ['i18n-obsidian', 'i18n-goals', 'i18n-v2', 'i18n-plus']) require(path.join(src, 'kit', f));
   const art = fs.readFileSync(path.join(src, 'kit/breeds.js'), 'utf8');
   const registered = art.slice(art.indexOf('Object.assign(S.STAGE'));
+  // 같은 이름의 function 선언이 둘이면 뒤엣것이 앞엣것을 조용히 덮는다 (호이스팅)
+  const fnNames = [...art.matchAll(/^\s*function (\w+)\(/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(fnNames.filter((x, i) => fnNames.indexOf(x) !== i), [], '그림 파일의 function 이름이 겹친다');
   const motions = fs.readFileSync(path.join(src, 'kit/motions.js'), 'utf8');
   const { STAGE_MOTIONS } = require(path.join(src, 'core/breeds'));
   const habits = Object.keys(C.habitsOf(C.seed({}, 0), 'cheese', { chars: 0, links: 0 }));
@@ -119,10 +122,10 @@ test('habitsOf · recordActivity: 옛 저장(dawns · focus 없음)도 0 에서 
 });
 
 test('checkTriggers: 아침에 쓴 날 · 집중 세션 수로도 만남 표가 생긴다', () => {
-  const none = { chars: 0, correct: 0, links: 0, tidy: 0, streak: 0, night: false, weekend: false, notesToday: 0, bigNotes: 0, allClear: false, dawn: false, focus: 0 };
+  const none = { chars: 0, correct: 0, links: 0, tidy: 0, streak: 0, night: false, weekend: false, notesToday: 0, bigNotes: 0, allClear: false, dawn: false, focusTotal: 0 };
   const quiet = C.checkTriggers(C.seed({}, 0), none, 10, () => 0);
   assert.deepStrictEqual(quiet.fired, []);
-  const r = C.checkTriggers(C.seed({}, 0), { ...none, dawn: true, focus: 3 }, 10, () => 0);
+  const r = C.checkTriggers(C.seed({}, 0), { ...none, dawn: true, focusTotal: 3 }, 10, () => 0);
   assert.deepStrictEqual(r.fired.sort(), ['dawn', 'focus3']);
   assert.strictEqual(r.state.tickets.length, 2);
 });

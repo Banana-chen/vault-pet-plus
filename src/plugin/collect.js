@@ -208,7 +208,7 @@ class Collector {
       streak,
       night: wrote && C.isNight(h),
       dawn: wrote && C.isDawn(h),
-      focus: this.host.goals.focusTotal().sessions,
+      focusTotal: this.host.focusSessions(),
       weekend: wrote && (dow === 0 || dow === 6),
       notesToday: t.n || 0,
       bigNotes: files.filter((f) => (f[0] || 0) >= BIG_NOTE).length,

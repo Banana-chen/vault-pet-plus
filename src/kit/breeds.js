@@ -72,6 +72,13 @@
     return { ...base, ...o, map: { ...base.map, rows: [...EARS3, ...rows], tail: tail || base.map.tail, cy: base.map.cy + n / 2, ry: base.map.ry + n / 2, _meta: undefined } };
   };
   const GOLD = '#ffd65a', WHITE = '#fff4e2';
+  // 머리 뒤 둥근 테: 점 n 개, color(k) 로 칠한다. spin 은 초당 도는 양 (0 이면 멈춰 있다)
+  function headRing(g, a, t, { n, rx, ry, color, spin = 0 }) {
+    for (let k = 0; k < n; k++) {
+      const ang = t * spin + (k * Math.PI * 2) / n;
+      this.px(a.hx + Math.cos(ang) * rx, a.top + 4 + Math.sin(ang) * ry, color(k), false);
+    }
+  }
   // 잘 때(몸을 만다)는 큰 조각을 안 그린다
   const awake = (f) => function (g, a, t) { if (!a.curled) f.call(this, g, a, t); };
   // 등 뒤 날개 한 쌍 (천천히 퍼덕인다)
@@ -107,10 +114,7 @@
       sparkle: '#fffbe0',
       // 머리 뒤에서 도는 금빛 후광
       back: awake(function (g, a, t) {
-        for (let k = 0; k < 14; k++) {
-          const ang = t * 0.6 + (k * Math.PI * 2) / 14;
-          this.px(a.hx + Math.cos(ang) * 10.5, a.top + 4 + Math.sin(ang) * 9.5, k % 2 ? GOLD : '#fff3a8', false);
-        }
+        headRing.call(this, g, a, t, { n: 14, rx: 10.5, ry: 9.5, spin: 0.6, color: (k) => (k % 2 ? GOLD : '#fff3a8') });
       }),
       mark: marks(awake(function (g, a, t) {
         const W = '#ffffff';
@@ -856,10 +860,7 @@
       back: marks(
         awake(function (g, a, t) {
           // 머리 뒤 해 후광: 둥근 테와 천천히 도는 빛살
-          for (let k = 0; k < 16; k++) {
-            const ang = (k * Math.PI * 2) / 16;
-            this.px(a.hx + Math.cos(ang) * 10, a.top + 4 + Math.sin(ang) * 9, k % 2 ? SUN.Y : SUN.y, false);
-          }
+          headRing.call(this, g, a, t, { n: 16, rx: 10, ry: 9, color: (k) => (k % 2 ? SUN.Y : SUN.y) });
           for (let k = 0; k < 8; k++) {
             const ang = t * 0.5 + (k * Math.PI * 2) / 8;
             for (let r = 12; r <= 14; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r === 14 ? SUN.y : SUN.R, false);
@@ -905,10 +906,7 @@
       sparkle: '#fff1c2',
       back: awake(function (g, a, t) {
         // 등 뒤 시계판: 둥근 테 · 눈금 · 테 안쪽을 도는 바늘
-        for (let k = 0; k < 20; k++) {
-          const ang = (k * Math.PI * 2) / 20;
-          this.px(a.hx + Math.cos(ang) * 12, a.top + 4 + Math.sin(ang) * 11, k % 5 ? SAND.G : SAND.g, false);
-        }
+        headRing.call(this, g, a, t, { n: 20, rx: 12, ry: 11, color: (k) => (k % 5 ? SAND.G : SAND.g) });
         const ang = t * 0.8 - Math.PI / 2;
         for (let r = 7; r <= 11; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r < 11 ? SAND.S : SAND.W, false);
       }),

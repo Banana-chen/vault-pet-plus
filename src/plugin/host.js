@@ -1130,6 +1130,11 @@ class KitHost {
     this.pushHouse();
   }
 
+  // [Plus] 지금까지 끝낸 집중 세션 수 (볼트 전체, 고양이 만남 조건)
+  focusSessions() {
+    return this.goals.focusTotal().sessions;
+  }
+
   // 끝날 시각이 됐는지 (fastTick). 다 마쳤으면 축하 + 코인 · 경험치 + 쉬자는 말
   focusTick(now = Date.now()) {
     const r = this.goals.focusTick(now);

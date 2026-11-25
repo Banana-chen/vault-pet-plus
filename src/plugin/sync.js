@@ -33,6 +33,7 @@ const HOUR = 3600_000;
 
 /* ── 비교 · 복사 ── */
 
+const { mergeCatHabits } = require('../core/collection'); // [Plus]
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 // 같은 값인가 (객체는 키 순서와 상관없이)
@@ -172,13 +173,17 @@ const dayPair = (dayKey, countKey) => (b, l, r, ctx) => {
   return { [dayKey]: l[dayKey], [countKey]: rule(SUM, bb, l[countKey], r[countKey], ctx) };
 };
 
-// [Plus] 고양이 모으기 (plugin/collect.js): 데려온 고양이는 합집합(양쪽에 다 있으면 이 기기 것),
+// [Plus] 고양이 모으기 (plugin/collect.js): 데려온 고양이는 합집합(양쪽에 다 있으면 이 기기 것 + 습관은 합친다),
 // 만난 기록 · 조건은 합치고(먼저 본 날), 데려온 고양이 · 표 · 길고양이는 이 기기 것 (기기마다 지금 무엇을 하고 있는지라)
-const HERD = custom((b, l, r) => {
+const HERD = custom((b, l, r, ctx) => {
   if (!isObj(l)) return r;
   if (!isObj(r)) return l;
+  // 양쪽에 다 있는 고양이는 습관을 합친다 (core/collection.js mergeCatHabits)
+  const lc = l.cats || {}, rc = r.cats || {}, bc = (isObj(b) && b.cats) || {};
+  const sum = (bb, x, y) => rule(SUM, bb, x, y, ctx);
+  const both = Object.fromEntries(Object.keys(lc).filter((k) => isObj(rc[k]) && isObj(lc[k])).map((k) => [k, mergeCatHabits(bc[k], lc[k], rc[k], sum)]));
   const early = (a, c) => Object.fromEntries([...new Set([...Object.keys(a || {}), ...Object.keys(c || {})])].map((k) => [k, Math.min(num(a && a[k]) || Infinity, num(c && c[k]) || Infinity) || 0]));
-  return { ...l, cats: { ...(r.cats || {}), ...(l.cats || {}) }, seen: early(l.seen, r.seen), flags: early(l.flags, r.flags), rolled: Math.max(num(l.rolled), num(r.rolled)) };
+  return { ...l, cats: { ...rc, ...lc, ...both }, seen: early(l.seen, r.seen), flags: early(l.flags, r.flags), rolled: Math.max(num(l.rolled), num(r.rolled)) };
 });
 
 const byJson = (x) => JSON.stringify(x);

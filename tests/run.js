@@ -1829,6 +1829,32 @@ test('sync [Plus]: 두 기기가 따로 데려온 고양이는 둘 다 남고, �
   assert.strictEqual(m.state.herd.rolled, 4);
 });
 
+test('sync [Plus]: 두 기기에서 같은 고양이가 자랐으면 습관은 합친다 (센 것은 더하고, 날은 합집합, 단계 바닥은 높은 쪽)', () => {
+  const cat = (o) => ({ breed: 'cheese', frozen: 0, base: 0, cFrozen: 0, cBase: 0, correct: 2, focus: 1, days: [10], nights: [], dawns: [10], peak: 0, ...o });
+  const herd = (c) => ({ active: 'cheese', cats: { cheese: c }, seen: { cheese: 0 }, flags: {}, tickets: [], rolled: 3, stray: null });
+  const b = devData();
+  b.state.herd = herd(cat());
+  const l = devData();
+  l.state.herd = herd(cat({ correct: 5, focus: 3, days: [10, 11], nights: [11], dawns: [10], peak: 1 }));
+  const r = devData();
+  // 옛 저장: dawns · focus 가 없다
+  const old = cat({ correct: 4, days: [10, 12], nights: [12], peak: 0 });
+  delete old.dawns;
+  delete old.focus;
+  r.state.herd = herd(old);
+  const m = mergeData(b, l, { ...r, meta: { sync: { B: 1 } } }, { now: SYNC_T0 });
+  const c = m.state.herd.cats.cheese;
+  assert.strictEqual(c.correct, 7, '2 + (5-2) + (4-2)');
+  assert.strictEqual(c.focus, 3, '이 기기에서만 늘었다');
+  assert.deepStrictEqual(c.days, [10, 11, 12]);
+  assert.deepStrictEqual(c.nights, [11, 12]);
+  assert.deepStrictEqual(c.dawns, [10]);
+  assert.strictEqual(c.peak, 1);
+  // 한쪽에만 있는 고양이는 그대로
+  const one = mergeData(null, l, { ...devData(), meta: { sync: { B: 1 } } }, { now: SYNC_T0 });
+  assert.strictEqual(one.state.herd.cats.cheese.correct, 5);
+});
+
 test('sync: 판 번호는 공유 칸이 바뀔 때만 오르고, 내 파일이 다시 와도(메아리) 아무것도 안 바뀐다', () => {
   const A = new SyncBook('A', null);
   const d = devData();

@@ -969,8 +969,8 @@ const TRIGGERS = [
   ['tidy15', (m) => m.tidy >= 15],
   ['night', (m) => m.night],
   ['dawn', (m) => m.dawn],
-  ['focus3', (m) => m.focus >= 3],
-  ['focus10', (m) => m.focus >= 10],
+  ['focus3', (m) => m.focusTotal >= 3],
+  ['focus10', (m) => m.focusTotal >= 10],
   ['weekend', (m) => m.weekend],
   ['notes3', (m) => m.notesToday >= 3],
   ['notes5', (m) => m.notesToday >= 5],
@@ -1010,6 +1010,10 @@ function newCat(breed, { raw, chars, now }, correct = 0) {
 
 const caught = (s) => Object.keys(s.cats);
 
+// 고양이 한 마리 (옛 저장에 없는 습관 칸은 빈 값으로 채워서). 습관을 읽고 올리는 곳은 다 이걸 거친다
+const HABIT_DEFAULTS = { correct: 0, focus: 0, days: [], nights: [], dawns: [] };
+const catOf = (s, key) => ({ ...HABIT_DEFAULTS, ...s.cats[key] });
+
 // raw 에 더하면 데려온 고양이의 경험치가 되는 값
 const xpAdjust = (s) => s.cats[s.active].frozen - s.cats[s.active].base;
 
@@ -1039,25 +1043,34 @@ function adopt(s, key, at) {
   return { ...s, cats: { ...s.cats, [key]: newCat(key, at) }, seen: { ...s.seen, [key]: s.seen[key] || at.now } };
 }
 
-// 데려온 고양이의 세는 습관 하나를 올린다 (옛 저장에 없는 칸은 0 에서)
-const bump = (s, k) => setCat(s, s.active, { [k]: (s.cats[s.active][k] || 0) + 1 });
-const addCorrect = (s) => bump(s, 'correct');
-const addFocus = (s) => bump(s, 'focus');
+// 데려온 고양이의 세는 습관 하나를 올린다
+const countHabit = (s, k) => setCat(s, s.active, { [k]: catOf(s, s.active)[k] + 1 });
+const addCorrect = (s) => countHabit(s, 'correct');
+const addFocus = (s) => countHabit(s, 'focus');
 
 // 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도, 아침(5~9시)이면 아침으로도 센다
 function recordActivity(s, day, hour) {
-  const c = s.cats[s.active];
+  const c = catOf(s, s.active);
   const add = (list) => (list.includes(day) ? list : [...list, day].slice(-KEEP_DAYS));
-  const dawns = c.dawns || [];
-  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(dawns) : dawns });
+  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(c.dawns) : c.dawns });
 }
 
 const peakOf = (s) => s.cats[s.active].peak || 0;
 const notePeak = (s, stage) => (stage > peakOf(s) ? setCat(s, s.active, { peak: stage }) : s);
 
 function habitsOf(s, key, { chars, links }) {
-  const c = s.cats[key];
-  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: (c.dawns || []).length, focus: c.focus || 0 };
+  const c = catOf(s, key);
+  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: c.dawns.length, focus: c.focus };
+}
+
+// 두 기기에서 같은 고양이가 자랐다 (plugin/sync.js). 센 것은 sum(b, l, r) 로 합치고(기준을 알면 양쪽에서 는 만큼), 날 목록은 합집합,
+// 단계 바닥은 높은 쪽. 나머지(경험치 기준점 · 생김새 · 이름)는 이 기기 것
+function mergeCatHabits(b, l, r, sum) {
+  const L = { ...HABIT_DEFAULTS, ...l }, R = { ...HABIT_DEFAULTS, ...r };
+  const days = (k) => [...new Set([...L[k], ...R[k]])].sort((x, y) => x - y).slice(-KEEP_DAYS);
+  // 센 것: 그 칸이 없는 쪽(옛 저장)은 '안 셌다'로 두고 sum 에 맡긴다 (0 으로 채우면 기준보다 줄어든 걸로 본다)
+  const count = (k) => sum(b ? b[k] : undefined, l[k], r[k]) || 0;
+  return { ...l, correct: count('correct'), focus: count('focus'), days: days('days'), nights: days('nights'), dawns: days('dawns'), peak: Math.max(L.peak || 0, R.peak || 0) };
 }
 
 /* ── 만남 ── */
@@ -1117,7 +1130,7 @@ function tameChance({ correct, price, rarity }) {
 module.exports = {
   STRAY_MS,
   isNight, isDawn, has,
-  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, setCat, peakOf, notePeak,
+  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, mergeCatHabits, setCat, peakOf, notePeak,
   checkTriggers, rollDaily, ticketDue, pickBreed, startStray, strayHere, endStray, tameChance,
 };
 
@@ -5743,7 +5756,7 @@ class Collector {
       streak,
       night: wrote && C.isNight(h),
       dawn: wrote && C.isDawn(h),
-      focus: this.host.goals.focusTotal().sessions,
+      focusTotal: this.host.focusSessions(),
       weekend: wrote && (dow === 0 || dow === 6),
       notesToday: t.n || 0,
       bigNotes: files.filter((f) => (f[0] || 0) >= BIG_NOTE).length,
@@ -7237,6 +7250,11 @@ class KitHost {
     this.plugin.updateStatus();
     if (this.plugin.focusChanged) this.plugin.focusChanged();
     this.pushHouse();
+  }
+
+  // [Plus] 지금까지 끝낸 집중 세션 수 (볼트 전체, 고양이 만남 조건)
+  focusSessions() {
+    return this.goals.focusTotal().sessions;
   }
 
   // 끝날 시각이 됐는지 (fastTick). 다 마쳤으면 축하 + 코인 · 경험치 + 쉬자는 말
@@ -10798,6 +10816,7 @@ const HOUR = 3600_000;
 
 /* ── 비교 · 복사 ── */
 
+const { mergeCatHabits } = require('../core/collection'); // [Plus]
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 // 같은 값인가 (객체는 키 순서와 상관없이)
@@ -10937,13 +10956,17 @@ const dayPair = (dayKey, countKey) => (b, l, r, ctx) => {
   return { [dayKey]: l[dayKey], [countKey]: rule(SUM, bb, l[countKey], r[countKey], ctx) };
 };
 
-// [Plus] 고양이 모으기 (plugin/collect.js): 데려온 고양이는 합집합(양쪽에 다 있으면 이 기기 것),
+// [Plus] 고양이 모으기 (plugin/collect.js): 데려온 고양이는 합집합(양쪽에 다 있으면 이 기기 것 + 습관은 합친다),
 // 만난 기록 · 조건은 합치고(먼저 본 날), 데려온 고양이 · 표 · 길고양이는 이 기기 것 (기기마다 지금 무엇을 하고 있는지라)
-const HERD = custom((b, l, r) => {
+const HERD = custom((b, l, r, ctx) => {
   if (!isObj(l)) return r;
   if (!isObj(r)) return l;
+  // 양쪽에 다 있는 고양이는 습관을 합친다 (core/collection.js mergeCatHabits)
+  const lc = l.cats || {}, rc = r.cats || {}, bc = (isObj(b) && b.cats) || {};
+  const sum = (bb, x, y) => rule(SUM, bb, x, y, ctx);
+  const both = Object.fromEntries(Object.keys(lc).filter((k) => isObj(rc[k]) && isObj(lc[k])).map((k) => [k, mergeCatHabits(bc[k], lc[k], rc[k], sum)]));
   const early = (a, c) => Object.fromEntries([...new Set([...Object.keys(a || {}), ...Object.keys(c || {})])].map((k) => [k, Math.min(num(a && a[k]) || Infinity, num(c && c[k]) || Infinity) || 0]));
-  return { ...l, cats: { ...(r.cats || {}), ...(l.cats || {}) }, seen: early(l.seen, r.seen), flags: early(l.flags, r.flags), rolled: Math.max(num(l.rolled), num(r.rolled)) };
+  return { ...l, cats: { ...rc, ...lc, ...both }, seen: early(l.seen, r.seen), flags: early(l.flags, r.flags), rolled: Math.max(num(l.rolled), num(r.rolled)) };
 });
 
 const byJson = (x) => JSON.stringify(x);
@@ -47011,6 +47034,13 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     return { ...base, ...o, map: { ...base.map, rows: [...EARS3, ...rows], tail: tail || base.map.tail, cy: base.map.cy + n / 2, ry: base.map.ry + n / 2, _meta: undefined } };
   };
   const GOLD = '#ffd65a', WHITE = '#fff4e2';
+  // 머리 뒤 둥근 테: 점 n 개, color(k) 로 칠한다. spin 은 초당 도는 양 (0 이면 멈춰 있다)
+  function headRing(g, a, t, { n, rx, ry, color, spin = 0 }) {
+    for (let k = 0; k < n; k++) {
+      const ang = t * spin + (k * Math.PI * 2) / n;
+      this.px(a.hx + Math.cos(ang) * rx, a.top + 4 + Math.sin(ang) * ry, color(k), false);
+    }
+  }
   // 잘 때(몸을 만다)는 큰 조각을 안 그린다
   const awake = (f) => function (g, a, t) { if (!a.curled) f.call(this, g, a, t); };
   // 등 뒤 날개 한 쌍 (천천히 퍼덕인다)
@@ -47046,10 +47076,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       sparkle: '#fffbe0',
       // 머리 뒤에서 도는 금빛 후광
       back: awake(function (g, a, t) {
-        for (let k = 0; k < 14; k++) {
-          const ang = t * 0.6 + (k * Math.PI * 2) / 14;
-          this.px(a.hx + Math.cos(ang) * 10.5, a.top + 4 + Math.sin(ang) * 9.5, k % 2 ? GOLD : '#fff3a8', false);
-        }
+        headRing.call(this, g, a, t, { n: 14, rx: 10.5, ry: 9.5, spin: 0.6, color: (k) => (k % 2 ? GOLD : '#fff3a8') });
       }),
       mark: marks(awake(function (g, a, t) {
         const W = '#ffffff';
@@ -47795,10 +47822,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       back: marks(
         awake(function (g, a, t) {
           // 머리 뒤 해 후광: 둥근 테와 천천히 도는 빛살
-          for (let k = 0; k < 16; k++) {
-            const ang = (k * Math.PI * 2) / 16;
-            this.px(a.hx + Math.cos(ang) * 10, a.top + 4 + Math.sin(ang) * 9, k % 2 ? SUN.Y : SUN.y, false);
-          }
+          headRing.call(this, g, a, t, { n: 16, rx: 10, ry: 9, color: (k) => (k % 2 ? SUN.Y : SUN.y) });
           for (let k = 0; k < 8; k++) {
             const ang = t * 0.5 + (k * Math.PI * 2) / 8;
             for (let r = 12; r <= 14; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r === 14 ? SUN.y : SUN.R, false);
@@ -47844,10 +47868,7 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       sparkle: '#fff1c2',
       back: awake(function (g, a, t) {
         // 등 뒤 시계판: 둥근 테 · 눈금 · 테 안쪽을 도는 바늘
-        for (let k = 0; k < 20; k++) {
-          const ang = (k * Math.PI * 2) / 20;
-          this.px(a.hx + Math.cos(ang) * 12, a.top + 4 + Math.sin(ang) * 11, k % 5 ? SAND.G : SAND.g, false);
-        }
+        headRing.call(this, g, a, t, { n: 20, rx: 12, ry: 11, color: (k) => (k % 5 ? SAND.G : SAND.g) });
         const ang = t * 0.8 - Math.PI / 2;
         for (let r = 7; r <= 11; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r < 11 ? SAND.S : SAND.W, false);
       }),

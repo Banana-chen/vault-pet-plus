@@ -32,8 +32,8 @@ const TRIGGERS = [
   ['tidy15', (m) => m.tidy >= 15],
   ['night', (m) => m.night],
   ['dawn', (m) => m.dawn],
-  ['focus3', (m) => m.focus >= 3],
-  ['focus10', (m) => m.focus >= 10],
+  ['focus3', (m) => m.focusTotal >= 3],
+  ['focus10', (m) => m.focusTotal >= 10],
   ['weekend', (m) => m.weekend],
   ['notes3', (m) => m.notesToday >= 3],
   ['notes5', (m) => m.notesToday >= 5],
@@ -73,6 +73,10 @@ function newCat(breed, { raw, chars, now }, correct = 0) {
 
 const caught = (s) => Object.keys(s.cats);
 
+// 고양이 한 마리 (옛 저장에 없는 습관 칸은 빈 값으로 채워서). 습관을 읽고 올리는 곳은 다 이걸 거친다
+const HABIT_DEFAULTS = { correct: 0, focus: 0, days: [], nights: [], dawns: [] };
+const catOf = (s, key) => ({ ...HABIT_DEFAULTS, ...s.cats[key] });
+
 // raw 에 더하면 데려온 고양이의 경험치가 되는 값
 const xpAdjust = (s) => s.cats[s.active].frozen - s.cats[s.active].base;
 
@@ -102,25 +106,34 @@ function adopt(s, key, at) {
   return { ...s, cats: { ...s.cats, [key]: newCat(key, at) }, seen: { ...s.seen, [key]: s.seen[key] || at.now } };
 }
 
-// 데려온 고양이의 세는 습관 하나를 올린다 (옛 저장에 없는 칸은 0 에서)
-const bump = (s, k) => setCat(s, s.active, { [k]: (s.cats[s.active][k] || 0) + 1 });
-const addCorrect = (s) => bump(s, 'correct');
-const addFocus = (s) => bump(s, 'focus');
+// 데려온 고양이의 세는 습관 하나를 올린다
+const countHabit = (s, k) => setCat(s, s.active, { [k]: catOf(s, s.active)[k] + 1 });
+const addCorrect = (s) => countHabit(s, 'correct');
+const addFocus = (s) => countHabit(s, 'focus');
 
 // 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도, 아침(5~9시)이면 아침으로도 센다
 function recordActivity(s, day, hour) {
-  const c = s.cats[s.active];
+  const c = catOf(s, s.active);
   const add = (list) => (list.includes(day) ? list : [...list, day].slice(-KEEP_DAYS));
-  const dawns = c.dawns || [];
-  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(dawns) : dawns });
+  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(c.dawns) : c.dawns });
 }
 
 const peakOf = (s) => s.cats[s.active].peak || 0;
 const notePeak = (s, stage) => (stage > peakOf(s) ? setCat(s, s.active, { peak: stage }) : s);
 
 function habitsOf(s, key, { chars, links }) {
-  const c = s.cats[key];
-  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: (c.dawns || []).length, focus: c.focus || 0 };
+  const c = catOf(s, key);
+  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: c.dawns.length, focus: c.focus };
+}
+
+// 두 기기에서 같은 고양이가 자랐다 (plugin/sync.js). 센 것은 sum(b, l, r) 로 합치고(기준을 알면 양쪽에서 는 만큼), 날 목록은 합집합,
+// 단계 바닥은 높은 쪽. 나머지(경험치 기준점 · 생김새 · 이름)는 이 기기 것
+function mergeCatHabits(b, l, r, sum) {
+  const L = { ...HABIT_DEFAULTS, ...l }, R = { ...HABIT_DEFAULTS, ...r };
+  const days = (k) => [...new Set([...L[k], ...R[k]])].sort((x, y) => x - y).slice(-KEEP_DAYS);
+  // 센 것: 그 칸이 없는 쪽(옛 저장)은 '안 셌다'로 두고 sum 에 맡긴다 (0 으로 채우면 기준보다 줄어든 걸로 본다)
+  const count = (k) => sum(b ? b[k] : undefined, l[k], r[k]) || 0;
+  return { ...l, correct: count('correct'), focus: count('focus'), days: days('days'), nights: days('nights'), dawns: days('dawns'), peak: Math.max(L.peak || 0, R.peak || 0) };
 }
 
 /* ── 만남 ── */
@@ -180,6 +193,6 @@ function tameChance({ correct, price, rarity }) {
 module.exports = {
   STRAY_MS,
   isNight, isDawn, has,
-  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, setCat, peakOf, notePeak,
+  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, mergeCatHabits, setCat, peakOf, notePeak,
   checkTriggers, rollDaily, ticketDue, pickBreed, startStray, strayHere, endStray, tameChance,
 };
