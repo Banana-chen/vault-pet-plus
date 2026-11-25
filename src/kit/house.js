@@ -2166,16 +2166,19 @@ const PROJECTS_SHOWN = 6;
 let projectsOpen = false;
 const subOpen = new Set(); // 하위 폴더를 펼쳐 둔 맨 윗단 폴더 (1.6.0)
 
+// [Plus] 단계의 습관 조건 (레벨 · 0 인 조건은 빼고)
+const habitKeys = (need) => Object.keys(need).filter((k) => k !== 'level' && need[k] > 0);
+
 // [Plus] 다음 진화까지 남은 조건: 레벨 + 그 품종의 습관들 (core/breeds.js)
 const needList = (g) =>
-  [`Lv.${g.level}/${g.nextNeed.level}`, ...Object.keys(g.nextNeed).filter((k) => k !== 'level').map((k) => `${t('need.' + k)} ${fmt(g.have[k] || 0)}/${fmt(g.nextNeed[k])}`)].join(' · ');
+  [`Lv.${g.level}/${g.nextNeed.level}`, ...habitKeys(g.nextNeed).map((k) => `${t('need.' + k)} ${fmt(g.have[k] || 0)}/${fmt(g.nextNeed[k])}`)].join(' · ');
 
 // [Plus] 품종의 진화 단계 길 (홈의 고양이 칸 안에). 단계가 하나뿐이면 안 그린다
 const roadPanel = (g) => `<div class="road">${D.stages
     .map((s, i) => {
       const cls = !g ? 'locked' : i < g.stageIndex ? 'done' : i === g.stageIndex ? 'now' : 'locked';
       // 레벨 말고도 습관 조건이 있다는 힌트만: '?' 를 붙이고, 올려 보면 어떤 습관인지 (숫자는 아래 needList 에)
-      const habits = Object.keys(s.need).filter((k) => k !== 'level' && s.need[k] > 0);
+      const habits = habitKeys(s.need);
       const hint = habits.length ? ` title="${esc(habits.map((k) => t('need.' + k)).join(' · '))}"` : '';
       return `<div class="step ${cls}"${hint}><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">Lv.${s.need.level}${habits.length ? ' · ?' : ''}</span></div>`;
     })
