@@ -613,12 +613,41 @@ test('stage: 떠 있는 작은 상태 표시줄 위가 아니라 작업 영역 �
   const box = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
   const prev = globalThis.document;
   const run = (sb) => {
-    globalThis.document = { querySelector: (q) => (q === '.workspace' ? { getBoundingClientRect: () => box(0, 0, 1024, 800) } : { offsetParent: {}, getBoundingClientRect: () => sb }) };
+    globalThis.document = { querySelector: (q) => (q === '.workspace' ? { getBoundingClientRect: () => box(0, 0, 1024, 800) } : q === '.status-bar' ? { offsetParent: {}, getBoundingClientRect: () => sb } : null) };
     return new PetStage({}, {}).rect().bottom;
   };
   try {
     assert.strictEqual(run(box(685, 771, 1024, 800)), 800); // 1.14 기본: 오른쪽 아래 알약
     assert.strictEqual(run(box(0, 771, 1024, 800)), 771);   // 가로로 꽉 찬 상태 표시줄 (테마)
+  } finally {
+    globalThis.document = prev;
+  }
+});
+test('stage: 고양이는 가운데 편집 영역만 걷고, 사이드바와 오른쪽 아래 알약은 비켜 선다 (2.8.0, 이슈 #22)', () => {
+  const { PetStage } = require(path.join(src, 'plugin/stage'));
+  const box = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+  const prev = globalThis.document;
+  const run = (root, sb) => {
+    const els = {
+      '.workspace': { getBoundingClientRect: () => box(0, 0, 1400, 800) },
+      '.workspace-split.mod-root': root && { getBoundingClientRect: () => root },
+      '.status-bar': sb && { offsetParent: {}, getBoundingClientRect: () => sb },
+    };
+    globalThis.document = { querySelector: (q) => els[q] || null };
+    const r = new PetStage({}, {}).rect();
+    return [r.left, r.right, r.bottom];
+  };
+  try {
+    // 리본 + 왼쪽 사이드바(0~300), 오른쪽 사이드바(1100~1400): 그 사이만, 알약(900~1100) 앞에서 멈춘다
+    assert.deepStrictEqual(run(box(300, 0, 1100, 800), box(900, 771, 1100, 800)), [300, 896, 800]);
+    // 알약이 없으면 편집 영역 오른쪽 끝까지
+    assert.deepStrictEqual(run(box(300, 0, 1100, 800), null), [300, 1100, 800]);
+    // 편집 영역이 너무 좁으면 예전처럼 작업 영역 전체
+    assert.deepStrictEqual(run(box(600, 0, 800, 800), null), [0, 1400, 800]);
+    // 가로로 꽉 찬 상태 표시줄(테마)은 바닥만 올리고 오른쪽은 줄이지 않는다
+    assert.deepStrictEqual(run(box(300, 0, 1100, 800), box(0, 771, 1400, 800)), [300, 1100, 771]);
+    // 루트 분할을 못 찾으면(옛 구조) 예전 그대로
+    assert.deepStrictEqual(run(null, null), [0, 1400, 800]);
   } finally {
     globalThis.document = prev;
   }
@@ -1017,6 +1046,46 @@ test('quests: 예전 퀘스트 묶음(쓰다듬기 등)은 새로 뽑고, 태그
   assert.ok(seen);
 });
 
+test('quests: 외톨이가 1개면 목표가 1개보다 큰 외톨이 퀘스트는 안 나온다 (2.9.0)', () => {
+  const { host } = makeHost();
+  host.plugin.orphanList = () => ['a.md'];
+  for (let i = 0; i < 200; i++) {
+    const o = host.gamify.newQuestSet().list.find((x) => x.type === 'orphans');
+    assert.ok(!o || o.target <= 1, '외톨이 1개인데 목표 ' + (o && o.target));
+  }
+});
+
+test('quests: 3시간 전이라도 하루 한 번은 못 끝낸 퀘스트만 바꾼다 (2.9.0)', () => {
+  const { host, state } = makeHost();
+  const set = { id: 'q1', at: Date.now(), list: [
+    { type: 'chars', tier: 'hard', target: 3000, xp: 120, base: 0 },
+    { type: 'links', tier: 'normal', target: 5, xp: 60, base: 0 },
+    { type: 'graph', tier: 'easy', target: 1, xp: 30, base: -1 }, // 이미 끝냄
+  ], claimed: ['q1:graph'] };
+  state.set({ questSet: set, questSwapDay: null });
+  let qi = host.gamify.questInfo();
+  assert.ok(qi.canRefresh && qi.free);
+  assert.strictEqual(host.gamify.refreshQuests(), true);
+  const after = host.gamify.st.questSet;
+  assert.strictEqual(after.id, 'q1', '묶음과 3시간 시계는 그대로');
+  assert.strictEqual(after.at, set.at);
+  assert.ok(after.list.some((q) => q.type === 'graph'), '끝낸 퀘스트는 남는다');
+  assert.ok(!after.list.some((q) => q.type === 'chars' || q.type === 'links'), '못 끝낸 것은 다른 종류로');
+  assert.deepStrictEqual(after.list.map((q) => q.tier), ['hard', 'normal', 'easy']);
+  qi = host.gamify.questInfo();
+  assert.ok(!qi.canRefresh && !qi.free, '오늘은 한 번만');
+  assert.strictEqual(host.gamify.refreshQuests(), false);
+});
+
+test('출석: 보너스를 받은 날은 연속 출석에 들어가고, 장부에도 1일째부터 적힌다 (2.9.0)', () => {
+  const { host, state } = makeHost();
+  state.set({ attendDay: null, bonus: [] });
+  host.gamify.tick(Date.now(), 0);
+  assert.strictEqual(host.gamify.streaks().current, 1);
+  const b = host.gamify.st.bonus.find((x) => x.why && x.why.k === 'bonus.attend');
+  assert.ok(b && b.why.v.d === 1 && b.xp === 20, JSON.stringify(b));
+});
+
 test('achievements: 모션 수집 · 먹고 싶은 것 · 초대장 업적이 없고, 정리 습관 묶음이 있다. 모션 보상은 코인으로. 보물 업적 셋은 돌아왔다 (2.2.0)', () => {
   const ids = new Set(ACHIEVEMENTS.map((a) => a.id));
   for (const gone of ['motion_10', 'motion_30', 'craving_1', 'invite_ok', 'smoke_break']) assert.ok(!ids.has(gone), gone);
@@ -1139,6 +1208,41 @@ test('focus: 마친 뒤 쉬는 시간을 켜고, 끝나면 다시 하자고 한�
   host.breakStart(5);
   host.focusStart(15);
   assert.strictEqual(host.goals.focusInfo().brk, null);
+});
+
+test('focus: 포모도로 반복은 집중 → 5분 쉬기를 4판 잇고, 네 번째는 15분 쉰 뒤 멈춘다 (2.8.0, 이슈 #22)', () => {
+  const { host, sent } = makeHost();
+  host.setSettings({ focusCycle: true });
+  assert.strictEqual(host.settings.get('focusCycle'), true);
+  let now = Date.now();
+  host.focusStart(25, 0, now);
+  for (let n = 1; n <= 4; n++) {
+    const f = host.goals.focusInfo(now);
+    assert.ok(f.on && f.round === n && f.min === 25, `${n}번째 판 집중 중`);
+    now = f.end + 1000;
+    sent.length = 0;
+    host.focusTick(now);
+    const b = host.goals.focusInfo(now).brk;
+    assert.ok(b && b.round === n && b.min === (n === 4 ? 15 : 5), `${n}번째 판 뒤 쉬기 ${b && b.min}`);
+    assert.ok(sent.some(([ch, x]) => ch === 'pet:bubble' && x.kind === 'focus'));
+    now = b.end + 1000;
+    host.breakTick(now);
+  }
+  const end = host.goals.focusInfo(now);
+  assert.ok(!end.on && !end.brk, '한 세트가 끝나면 멈춘다');
+  assert.strictEqual(end.total.today, 4);
+  // 쉬는 중에 '다시 집중'을 누르면 다음 판으로 이어진다
+  now += 60_000;
+  host.focusStart(15, 0, now);
+  host.focusTick(now + 15 * 60_000 + 1000);
+  host.focusStart(15, 0, now + 15 * 60_000 + 2000);
+  assert.strictEqual(host.goals.focusInfo(now + 15 * 60_000 + 3000).round, 2);
+  // 끄면 예전처럼 쉬기를 저절로 켜지 않는다
+  host.focusStop(true);
+  host.setSettings({ focusCycle: false });
+  host.focusStart(25, 0, now);
+  host.focusTick(now + 25 * 60_000 + 1000);
+  assert.strictEqual(host.goals.focusInfo(now + 25 * 60_000 + 2000).brk, null);
 });
 
 test('vaultmap: 노트 지도 · 외톨이 노트 · 최근 노트는 읽기만 하고, 없는 노트는 열지(만들지) 않는다', async () => {
@@ -2014,6 +2118,28 @@ test('friends: 놀러 와서 물물교환 · 밥 주기 · 인사, 두고 간 �
   // 단짝만 부를 수 있다
   const call = await host.onInvoke('house:friend-call', null, 'dust');
   assert.strictEqual(call.result.error, 'notBest');
+});
+
+test('선물: 공방에서 만든 옷은 빠지고, 상점에서 산 옷은 남는다 (2.8.2)', async () => {
+  const { host, state } = makeHost();
+  const fr = host.friends;
+  fr.setOne('dust', { pts: 9999 });
+  // 만든 옷: 빠진다
+  state.set({ items: ['none', 'capcrown'], workshopMade: [{ key: 'capcrown', at: 100 }], purchases: [] });
+  let r = fr.gift('dust', 'capcrown');
+  assert.ok(r.ok && !r.kept);
+  assert.ok(!state.get('items').includes('capcrown'), '만든 옷은 빠진다');
+  // 선물한 뒤 상점에서 다시 산 옷: 남는다
+  state.set({ items: ['none', 'capcrown'], purchases: [{ at: 200, key: 'capcrown', price: 1 }] });
+  r = fr.gift('dust', 'capcrown');
+  assert.ok(r.ok && r.kept);
+  assert.ok(state.get('items').includes('capcrown'), '산 옷은 남는다');
+  // 만든 기록이 없으면 산 것 (구매 기록이 잘렸어도)
+  state.set({ items: ['none', 'gatekeeper'], workshopMade: [], purchases: [] });
+  assert.ok(fr.gift('dust', 'gatekeeper').kept);
+  // 별로 산 옷도 남는다
+  state.set({ items: ['none', 'gatekeeper'], workshopMade: [{ key: 'gatekeeper', at: 100 }], starLog: [{ at: 300, key: 'gatekeeper', stars: 1 }] });
+  assert.ok(fr.gift('dust', 'gatekeeper').kept);
 });
 
 test('friends off: 친구가 안 오고, 와 있던 친구는 인사하고 돌아간다 (친밀도 · 보물은 그대로). 다시 켜면 이어서', async () => {

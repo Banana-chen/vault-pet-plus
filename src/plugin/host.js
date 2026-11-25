@@ -5,7 +5,7 @@
 // 2.2.0: 동네 친구 · 보물 공방(깜짝 이벤트 · 보물 · 교환소)이 돌아왔다 (이슈 #9). 설정 friendsOn · workshopOn 으로 끈다 (syncFeatures)
 const { Menu, Notice, setIcon } = require('obsidian');
 const { computeGrowth, xpOf, levelOf, FURS, EAR_SHAPES, STAGES, foldStage, CHARS_PER_XP, XP_PER_LINK, XP_PER_NOTE, XP_PER_SESSION, XP_PER_TASK } = require('../core/growth');
-const { Goals, cleanGoal, GOAL_COINS, GOAL_XP, FOCUS_LENGTHS, BREAK_LENGTHS } = require('../core/goals');
+const { Goals, cleanGoal, GOAL_COINS, GOAL_XP, FOCUS_LENGTHS, BREAK_LENGTHS, CYCLE_ROUNDS } = require('../core/goals');
 const { Brain } = require('../core/brain');
 const { Gamify } = require('../core/gamify');
 const { STAGE_MOTIONS } = require('../core/breeds'); // [Plus] 진화 단계 전용 모션
@@ -1090,16 +1090,17 @@ class KitHost {
   }
 
   // 집중 시간 시작. 그동안은 방해 금지 (끝나면 풀린다). 고양이 머리 위에 남은 시간
-  focusStart(min) {
-    if (this.goals.focusInfo().on) return this.goals.focusInfo();
-    const f = this.goals.focusStart(min);
+  // round: 포모도로 반복이 다음 판을 스스로 이을 때 (breakTick)
+  focusStart(min, round = 0, now = Date.now()) {
+    if (this.goals.focusInfo(now).on) return this.goals.focusInfo(now);
+    const f = this.goals.focusStart(min, now, round);
     // 집중 때문에 켠 방해 금지면 그 끝 시각을 적어 둔다 (원래 더 길게 켜 둔 방해 금지는 건드리지 않게)
     const quietBefore = this.state.get('quietUntil') || 0;
     this.state.set({ quietUntil: Math.max(quietBefore, f.end), focusQuiet: quietBefore < f.end ? f.end : 0 });
     this.send('pet:quiet', true);
     this.sendFocus();
     this.send('pet:action', 'wave');
-    this.bubble(this.T.line('focusStart', { m: f.min }), 'focus');
+    this.bubble(f.round > 1 ? this.T.line('cycleNext', { n: f.round, of: CYCLE_ROUNDS, m: f.min }) : this.T.line('focusStart', { m: f.min }), 'focus');
     this.afterFocusChange();
     return this.goals.focusInfo();
   }
@@ -1142,7 +1143,10 @@ class KitHost {
       this.gamify.count('focusMin', r.min);
       this.act('levelup');
       this.sound('achieve');
-      this.bubble(this.T.line('focusDone', { m: r.min, coins: r.coins }), 'focus', 'home');
+      // 포모도로 반복: 쉬기가 저절로 시작된다 (네 번째 판 뒤는 긴 쉬기)
+      const b = r.round && this.goals.cycleOn() ? this.goals.breakStart(0, now, r.round, r.min) : null;
+      if (b) this.bubble(this.T.line(b.round >= CYCLE_ROUNDS ? 'cycleLong' : 'cycleBreak', { m: r.min, coins: r.coins, b: b.min, n: b.round, of: CYCLE_ROUNDS }), 'focus', 'home');
+      else this.bubble(this.T.line('focusDone', { m: r.min, coins: r.coins }), 'focus', 'home');
       this.growthSoon();
     }
     this.afterFocusChange();
@@ -1169,6 +1173,17 @@ class KitHost {
   breakTick(now = Date.now()) {
     const r = this.goals.breakTick(now);
     if (!r) return null;
+    // 포모도로 반복: 다음 판을 저절로 잇는다. 네 번째 판의 긴 쉬기가 끝나면 한 세트 끝
+    if (r.round && this.goals.cycleOn()) {
+      if (r.round < CYCLE_ROUNDS) {
+        this.focusStart(r.fmin, r.round + 1, now);
+        return r;
+      }
+      this.send('pet:action', 'wave');
+      this.bubble(this.T.line('cycleDone', { of: CYCLE_ROUNDS }), 'focus', 'home');
+      this.afterFocusChange();
+      return r;
+    }
     this.send('pet:action', 'wave');
     this.bubble(this.T.line('breakDone', { m: r.min }), 'focus', 'home');
     this.afterFocusChange();
@@ -1757,7 +1772,7 @@ class KitHost {
       }
       // 이미 있는 노트 열기 · 옵시디언 그래프 열기 (홈의 노트 지도 · 최근 노트)
       case 'note:open':
-        return this.plugin.openNote ? this.plugin.openNote(String(a[0] || '')) : false;
+        return this.plugin.openNote ? this.plugin.openNote(String(a[0] || ''), !!a[1]) : false;
       case 'graph:open':
         return this.plugin.openGraph ? !!(await this.plugin.openGraph(!!a[0])) : false;
       // '새로 생긴 것' 창을 봤다 (하우스가 창을 여는 순간 부른다. 설정에서 다시 볼 수는 있다)

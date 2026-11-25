@@ -1,7 +1,7 @@
 {
   "id": "vault-pet-plus",
   "name": "Vault Pet Plus",
-  "version": "2.7.0-plus.0",
+  "version": "2.9.0-plus.0",
   "minAppVersion": "1.5.0",
   "description": "Personal fork of Vault Pet: Connect cards with a reason, Tidy links, and tame and evolve more cats.",
   "author": "Elliott Park",
