@@ -1,5 +1,5 @@
 /*
- * Vault Pet 2.7.0-plus.0 — Obsidian plugin (built 2026-11-18)
+ * Vault Pet 2.7.0-plus.0 — Obsidian plugin (built 2026-11-25)
  * 옵시디언에 글을 쓸수록 자라는 도트 고양이. 소스: src/ (node scripts/build.js 로 이 파일을 만든다)
  * 비공식 팬메이드. Anthropic 과 관련이 없습니다.
  */
@@ -75549,7 +75549,10 @@ const needList = (g) =>
 const roadPanel = (g) => `<div class="road">${D.stages
     .map((s, i) => {
       const cls = !g ? 'locked' : i < g.stageIndex ? 'done' : i === g.stageIndex ? 'now' : 'locked';
-      return `<div class="step ${cls}"><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">Lv.${s.need.level}</span></div>`;
+      // 레벨 말고도 습관 조건이 있다는 힌트만: '?' 를 붙이고, 올려 보면 어떤 습관인지 (숫자는 아래 needList 에)
+      const habits = Object.keys(s.need).filter((k) => k !== 'level');
+      const hint = habits.length ? ` title="${esc(habits.map((k) => t('need.' + k)).join(' · '))}"` : '';
+      return `<div class="step ${cls}"${hint}><canvas class="pixel" data-stage="${s.key}"></canvas>${stageName(s.key)}<br><span class="muted">Lv.${s.need.level}${habits.length ? ' · ?' : ''}</span></div>`;
     })
     .join('')}</div>
   <div class="bar" style="margin-top:10px"><i style="width:${g ? g.progress * 100 : 0}%"></i></div>
