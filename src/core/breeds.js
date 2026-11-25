@@ -2,6 +2,7 @@
 // [Plus] 고양이 품종 (모으기). 그림은 kit/breeds.js, 이름은 i18n-plus 'breed.<key>' · 'stage.<key>'.
 // 품종마다 생김새(몸 도트 · 꼬리 · 무늬)와 진화 단계 · 조건이 다르다. 조건은 레벨 + 그 품종이 좋아하는 습관.
 //  chars 글자 수 · correct 복습에서 맞힌 문제 · links 볼트 링크 수 · nights 밤(22~2시)에 쓴 날 · days 글을 쓴 날
+//  dawns 아침(5~9시)에 쓴 날 · focus 끝낸 집중 세션
 // 고양이마다 따로 센다 (links 만 볼트 전체). 사용자에게 몇 품종인지는 보여 주지 않는다
 
 const BREEDS = [
@@ -114,6 +115,25 @@ const BREEDS = [
       { key: 'dragon3', need: { level: 35, chars: 250_000, days: 45 } },
     ],
   },
+  // ── 2026-11-25 둘 더 ──
+  // 종달새: 이마의 작은 해, 깃털 꼬리. 아침에 쓰면 자란다 (올빼미의 반대)
+  {
+    key: 'lark', rarity: 'common', fur: 'peach', ears: 'whitetip', meet: ['dawn', 'streak3', 'notes3'],
+    stages: [
+      { key: 'lark', need: { level: 1 } },
+      { key: 'lark2', need: { level: 12, dawns: 5 } },
+      { key: 'lark3', need: { level: 30, dawns: 20 } },
+    ],
+  },
+  // 모래시계 (귀함): 이마의 모래시계, 잘록한 허리, 추 꼬리. 집중 세션을 끝내고 글을 쓰면 자란다
+  {
+    key: 'hourglass', rarity: 'rare', fur: 'gold', ears: 'small', meet: ['focus3', 'focus10', 'allClear'],
+    stages: [
+      { key: 'hourglass', need: { level: 1 } },
+      { key: 'hourglass2', need: { level: 15, focus: 8, chars: 40_000 } },
+      { key: 'hourglass3', need: { level: 35, focus: 30, chars: 160_000 } },
+    ],
+  },
 ];
 
 // 단계 전용 모션 (kit/motions.js 의 이름). 2단계부터, 심심할 때 세트 전용 모션처럼 저절로 섞여 나온다 (plugin/host.js idlePool).
@@ -131,6 +151,8 @@ const STAGE_MOTIONS = {
   tide2: ['bath'], tide3: ['bubbleplay', 'bath'],
   gear2: ['recharge'], gear3: ['rocketpunch', 'reboot', 'recharge'],
   dragon2: ['fireup'], dragon3: ['rocket', 'fireup', 'aura'],
+  lark2: ['stretch'], lark3: ['glowup', 'hooray', 'stretch'],
+  hourglass2: ['tapfoot'], hourglass3: ['coffee', 'aura', 'tapfoot'],
 };
 
 const START_BREED = 'cheese';

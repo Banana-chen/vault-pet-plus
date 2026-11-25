@@ -1141,6 +1141,7 @@ class KitHost {
       this.shop.give({ coins: r.coins });
       this.gamify.count('focus');
       this.gamify.count('focusMin', r.min);
+      if (this.plugin.collect) this.plugin.collect.addFocus(); // [Plus] 데려온 고양이의 습관
       this.act('levelup');
       this.sound('achieve');
       // 포모도로 반복: 쉬기가 저절로 시작된다 (네 번째 판 뒤는 긴 쉬기)

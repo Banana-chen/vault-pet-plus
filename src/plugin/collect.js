@@ -93,6 +93,11 @@ class Collector {
     this.set(C.addCorrect(this.herd()));
   }
 
+  // 집중 세션을 끝냈다 (host.focusTick)
+  addFocus() {
+    this.set(C.addFocus(this.herd()));
+  }
+
   /* ── 고양이 바꾸기 · 데려오기 ── */
 
   lookNow() {
@@ -202,6 +207,8 @@ class Collector {
       tidy: (st.get('tidy') || {}).done || 0,
       streak,
       night: wrote && C.isNight(h),
+      dawn: wrote && C.isDawn(h),
+      focus: this.host.goals.focusTotal().sessions,
       weekend: wrote && (dow === 0 || dow === 6),
       notesToday: t.n || 0,
       bigNotes: files.filter((f) => (f[0] || 0) >= BIG_NOTE).length,

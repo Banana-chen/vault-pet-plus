@@ -31,6 +31,9 @@ const TRIGGERS = [
   ['tidy8', (m) => m.tidy >= 8],
   ['tidy15', (m) => m.tidy >= 15],
   ['night', (m) => m.night],
+  ['dawn', (m) => m.dawn],
+  ['focus3', (m) => m.focus >= 3],
+  ['focus10', (m) => m.focus >= 10],
   ['weekend', (m) => m.weekend],
   ['notes3', (m) => m.notesToday >= 3],
   ['notes5', (m) => m.notesToday >= 5],
@@ -44,6 +47,7 @@ const RARE_WEIGHT = 0.25;
 const MEET_WEIGHT = 6; // 만남 표를 만든 조건이 그 품종의 meet 에 있으면 이만큼 더 잘 나온다
 const STRAY_MS = 15 * 60_000;
 const isNight = (h) => h >= 22 || h < 2;
+const isDawn = (h) => h >= 5 && h < 9;
 const KEEP_DAYS = 400; // 날 기록은 이만큼만 (밤 · 쓴 날 세기용)
 
 function seed({ correct = 0 } = {}, now = 0) {
@@ -64,7 +68,7 @@ const has = (s, key) => typeof key === 'string' && Object.prototype.hasOwnProper
 function newCat(breed, { raw, chars, now }, correct = 0) {
   // lastLevel · lastStage 는 쉬는 동안 화면이 기억할 자리 (바꿀 때 host 가 채운다)
   // peak = 이 고양이가 올라간 가장 높은 단계 (링크를 지워도 퇴화하지 않는 바닥, 고양이마다)
-  return { breed, at: now, frozen: 0, base: raw, cFrozen: 0, cBase: chars, correct, days: [], nights: [], name: null, look: null, lastLevel: null, lastStage: null, peak: 0 };
+  return { breed, at: now, frozen: 0, base: raw, cFrozen: 0, cBase: chars, correct, days: [], nights: [], dawns: [], focus: 0, name: null, look: null, lastLevel: null, lastStage: null, peak: 0 };
 }
 
 const caught = (s) => Object.keys(s.cats);
@@ -98,13 +102,17 @@ function adopt(s, key, at) {
   return { ...s, cats: { ...s.cats, [key]: newCat(key, at) }, seen: { ...s.seen, [key]: s.seen[key] || at.now } };
 }
 
-const addCorrect = (s) => setCat(s, s.active, { correct: s.cats[s.active].correct + 1 });
+// 데려온 고양이의 세는 습관 하나를 올린다 (옛 저장에 없는 칸은 0 에서)
+const bump = (s, k) => setCat(s, s.active, { [k]: (s.cats[s.active][k] || 0) + 1 });
+const addCorrect = (s) => bump(s, 'correct');
+const addFocus = (s) => bump(s, 'focus');
 
-// 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도 센다
+// 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도, 아침(5~9시)이면 아침으로도 센다
 function recordActivity(s, day, hour) {
   const c = s.cats[s.active];
   const add = (list) => (list.includes(day) ? list : [...list, day].slice(-KEEP_DAYS));
-  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights });
+  const dawns = c.dawns || [];
+  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(dawns) : dawns });
 }
 
 const peakOf = (s) => s.cats[s.active].peak || 0;
@@ -112,7 +120,7 @@ const notePeak = (s, stage) => (stage > peakOf(s) ? setCat(s, s.active, { peak: 
 
 function habitsOf(s, key, { chars, links }) {
   const c = s.cats[key];
-  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length };
+  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: (c.dawns || []).length, focus: c.focus || 0 };
 }
 
 /* ── 만남 ── */
@@ -171,7 +179,7 @@ function tameChance({ correct, price, rarity }) {
 
 module.exports = {
   STRAY_MS,
-  isNight, has,
-  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, recordActivity, habitsOf, setCat, peakOf, notePeak,
+  isNight, isDawn, has,
+  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, setCat, peakOf, notePeak,
   checkTriggers, rollDaily, ticketDue, pickBreed, startStray, strayHere, endStray, tameChance,
 };

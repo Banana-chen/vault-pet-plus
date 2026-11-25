@@ -772,6 +772,7 @@ __defs["core/breeds"] = function (module, exports, require) {
 // [Plus] 고양이 품종 (모으기). 그림은 kit/breeds.js, 이름은 i18n-plus 'breed.<key>' · 'stage.<key>'.
 // 품종마다 생김새(몸 도트 · 꼬리 · 무늬)와 진화 단계 · 조건이 다르다. 조건은 레벨 + 그 품종이 좋아하는 습관.
 //  chars 글자 수 · correct 복습에서 맞힌 문제 · links 볼트 링크 수 · nights 밤(22~2시)에 쓴 날 · days 글을 쓴 날
+//  dawns 아침(5~9시)에 쓴 날 · focus 끝낸 집중 세션
 // 고양이마다 따로 센다 (links 만 볼트 전체). 사용자에게 몇 품종인지는 보여 주지 않는다
 
 const BREEDS = [
@@ -884,6 +885,25 @@ const BREEDS = [
       { key: 'dragon3', need: { level: 35, chars: 250_000, days: 45 } },
     ],
   },
+  // ── 2026-11-25 둘 더 ──
+  // 종달새: 이마의 작은 해, 깃털 꼬리. 아침에 쓰면 자란다 (올빼미의 반대)
+  {
+    key: 'lark', rarity: 'common', fur: 'peach', ears: 'whitetip', meet: ['dawn', 'streak3', 'notes3'],
+    stages: [
+      { key: 'lark', need: { level: 1 } },
+      { key: 'lark2', need: { level: 12, dawns: 5 } },
+      { key: 'lark3', need: { level: 30, dawns: 20 } },
+    ],
+  },
+  // 모래시계 (귀함): 이마의 모래시계, 잘록한 허리, 추 꼬리. 집중 세션을 끝내고 글을 쓰면 자란다
+  {
+    key: 'hourglass', rarity: 'rare', fur: 'gold', ears: 'small', meet: ['focus3', 'focus10', 'allClear'],
+    stages: [
+      { key: 'hourglass', need: { level: 1 } },
+      { key: 'hourglass2', need: { level: 15, focus: 8, chars: 40_000 } },
+      { key: 'hourglass3', need: { level: 35, focus: 30, chars: 160_000 } },
+    ],
+  },
 ];
 
 // 단계 전용 모션 (kit/motions.js 의 이름). 2단계부터, 심심할 때 세트 전용 모션처럼 저절로 섞여 나온다 (plugin/host.js idlePool).
@@ -901,6 +921,8 @@ const STAGE_MOTIONS = {
   tide2: ['bath'], tide3: ['bubbleplay', 'bath'],
   gear2: ['recharge'], gear3: ['rocketpunch', 'reboot', 'recharge'],
   dragon2: ['fireup'], dragon3: ['rocket', 'fireup', 'aura'],
+  lark2: ['stretch'], lark3: ['glowup', 'hooray', 'stretch'],
+  hourglass2: ['tapfoot'], hourglass3: ['coffee', 'aura', 'tapfoot'],
 };
 
 const START_BREED = 'cheese';
@@ -946,6 +968,9 @@ const TRIGGERS = [
   ['tidy8', (m) => m.tidy >= 8],
   ['tidy15', (m) => m.tidy >= 15],
   ['night', (m) => m.night],
+  ['dawn', (m) => m.dawn],
+  ['focus3', (m) => m.focus >= 3],
+  ['focus10', (m) => m.focus >= 10],
   ['weekend', (m) => m.weekend],
   ['notes3', (m) => m.notesToday >= 3],
   ['notes5', (m) => m.notesToday >= 5],
@@ -959,6 +984,7 @@ const RARE_WEIGHT = 0.25;
 const MEET_WEIGHT = 6; // 만남 표를 만든 조건이 그 품종의 meet 에 있으면 이만큼 더 잘 나온다
 const STRAY_MS = 15 * 60_000;
 const isNight = (h) => h >= 22 || h < 2;
+const isDawn = (h) => h >= 5 && h < 9;
 const KEEP_DAYS = 400; // 날 기록은 이만큼만 (밤 · 쓴 날 세기용)
 
 function seed({ correct = 0 } = {}, now = 0) {
@@ -979,7 +1005,7 @@ const has = (s, key) => typeof key === 'string' && Object.prototype.hasOwnProper
 function newCat(breed, { raw, chars, now }, correct = 0) {
   // lastLevel · lastStage 는 쉬는 동안 화면이 기억할 자리 (바꿀 때 host 가 채운다)
   // peak = 이 고양이가 올라간 가장 높은 단계 (링크를 지워도 퇴화하지 않는 바닥, 고양이마다)
-  return { breed, at: now, frozen: 0, base: raw, cFrozen: 0, cBase: chars, correct, days: [], nights: [], name: null, look: null, lastLevel: null, lastStage: null, peak: 0 };
+  return { breed, at: now, frozen: 0, base: raw, cFrozen: 0, cBase: chars, correct, days: [], nights: [], dawns: [], focus: 0, name: null, look: null, lastLevel: null, lastStage: null, peak: 0 };
 }
 
 const caught = (s) => Object.keys(s.cats);
@@ -1013,13 +1039,17 @@ function adopt(s, key, at) {
   return { ...s, cats: { ...s.cats, [key]: newCat(key, at) }, seen: { ...s.seen, [key]: s.seen[key] || at.now } };
 }
 
-const addCorrect = (s) => setCat(s, s.active, { correct: s.cats[s.active].correct + 1 });
+// 데려온 고양이의 세는 습관 하나를 올린다 (옛 저장에 없는 칸은 0 에서)
+const bump = (s, k) => setCat(s, s.active, { [k]: (s.cats[s.active][k] || 0) + 1 });
+const addCorrect = (s) => bump(s, 'correct');
+const addFocus = (s) => bump(s, 'focus');
 
-// 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도 센다
+// 데려온 고양이가 이날 썼다 (hour 는 현지 시각). 밤(22~2시)이면 밤으로도, 아침(5~9시)이면 아침으로도 센다
 function recordActivity(s, day, hour) {
   const c = s.cats[s.active];
   const add = (list) => (list.includes(day) ? list : [...list, day].slice(-KEEP_DAYS));
-  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights });
+  const dawns = c.dawns || [];
+  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(dawns) : dawns });
 }
 
 const peakOf = (s) => s.cats[s.active].peak || 0;
@@ -1027,7 +1057,7 @@ const notePeak = (s, stage) => (stage > peakOf(s) ? setCat(s, s.active, { peak: 
 
 function habitsOf(s, key, { chars, links }) {
   const c = s.cats[key];
-  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length };
+  return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: (c.dawns || []).length, focus: c.focus || 0 };
 }
 
 /* ── 만남 ── */
@@ -1086,8 +1116,8 @@ function tameChance({ correct, price, rarity }) {
 
 module.exports = {
   STRAY_MS,
-  isNight, has,
-  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, recordActivity, habitsOf, setCat, peakOf, notePeak,
+  isNight, isDawn, has,
+  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, setCat, peakOf, notePeak,
   checkTriggers, rollDaily, ticketDue, pickBreed, startStray, strayHere, endStray, tameChance,
 };
 
@@ -5598,6 +5628,11 @@ class Collector {
     this.set(C.addCorrect(this.herd()));
   }
 
+  // 집중 세션을 끝냈다 (host.focusTick)
+  addFocus() {
+    this.set(C.addFocus(this.herd()));
+  }
+
   /* ── 고양이 바꾸기 · 데려오기 ── */
 
   lookNow() {
@@ -5707,6 +5742,8 @@ class Collector {
       tidy: (st.get('tidy') || {}).done || 0,
       streak,
       night: wrote && C.isNight(h),
+      dawn: wrote && C.isDawn(h),
+      focus: this.host.goals.focusTotal().sessions,
       weekend: wrote && (dow === 0 || dow === 6),
       notesToday: t.n || 0,
       bigNotes: files.filter((f) => (f[0] || 0) >= BIG_NOTE).length,
@@ -7213,6 +7250,7 @@ class KitHost {
       this.shop.give({ coins: r.coins });
       this.gamify.count('focus');
       this.gamify.count('focusMin', r.min);
+      if (this.plugin.collect) this.plugin.collect.addFocus(); // [Plus] 데려온 고양이의 습관
       this.act('levelup');
       this.sound('achieve');
       // 포모도로 반복: 쉬기가 저절로 시작된다 (네 번째 판 뒤는 긴 쉬기)
@@ -24204,7 +24242,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '물방울 고양이', 'stage.tide2': '파도 물방울', 'stage.tide3': '해룡 물방울',
       'stage.gear': '톱니 고양이', 'stage.gear2': '태엽 톱니', 'stage.gear3': '강철 톱니',
       'stage.dragon': '아기용 고양이', 'stage.dragon2': '날개 아기용', 'stage.dragon3': '화룡',
-      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
+      'breed.lark': '종달새 고양이', 'breed.hourglass': '모래시계 고양이',
+      'stage.lark': '종달새 고양이', 'stage.lark2': '아침해 종달새', 'stage.lark3': '햇살 종달새',
+      'stage.hourglass': '모래시계 고양이', 'stage.hourglass2': '흐르는 모래시계', 'stage.hourglass3': '시간지기 모래시계',
+      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날', 'need.dawns': '아침에 쓴 날', 'need.focus': '집중 세션',
       'home.toNextAny': '<b>{stage}</b>까지: {list}',
       'cats.title': '고양이 도감',
       'cats.sub': '데려온 고양이는 저마다 따로 자라요. 데려온 고양이만 경험치를 받아요',
@@ -24303,7 +24344,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Droplet cat', 'stage.tide2': 'Wave droplet', 'stage.tide3': 'Sea dragon',
       'stage.gear': 'Gear cat', 'stage.gear2': 'Clockwork gear', 'stage.gear3': 'Mecha gear',
       'stage.dragon': 'Dragonling cat', 'stage.dragon2': 'Winged dragonling', 'stage.dragon3': 'Fire dragon',
-      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
+      'breed.lark': 'Lark cat', 'breed.hourglass': 'Hourglass cat',
+      'stage.lark': 'Lark cat', 'stage.lark2': 'Sunrise lark', 'stage.lark3': 'Sunbeam lark',
+      'stage.hourglass': 'Hourglass cat', 'stage.hourglass2': 'Sandfall hourglass', 'stage.hourglass3': 'Timekeeper',
+      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days', 'need.dawns': 'early mornings', 'need.focus': 'focus sessions',
       'home.toNextAny': 'To <b>{stage}</b>: {list}',
       'cats.title': 'Cat catalog',
       'cats.sub': 'Every cat grows on its own. Only the cat with you earns XP',
@@ -24402,7 +24446,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '水滴貓', 'stage.tide2': '浪花水滴貓', 'stage.tide3': '海龍水滴貓',
       'stage.gear': '齒輪貓', 'stage.gear2': '發條齒輪貓', 'stage.gear3': '機甲齒輪貓',
       'stage.dragon': '幼龍貓', 'stage.dragon2': '飛翼幼龍貓', 'stage.dragon3': '炎龍貓',
-      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
+      'breed.lark': '雲雀貓', 'breed.hourglass': '沙漏貓',
+      'stage.lark': '雲雀貓', 'stage.lark2': '晨曦雲雀貓', 'stage.lark3': '日光雲雀貓',
+      'stage.hourglass': '沙漏貓', 'stage.hourglass2': '流沙沙漏貓', 'stage.hourglass3': '時之守護沙漏貓',
+      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數', 'need.dawns': '早晨寫作天數', 'need.focus': '專注時段',
       'home.toNextAny': '距 <b>{stage}</b>：{list}',
       'cats.title': '貓咪圖鑑',
       'cats.sub': '每隻貓各自成長，只有帶在身邊的那隻會拿到經驗值',
@@ -24501,7 +24548,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Кошка-капелька', 'stage.tide2': 'Капелька-волна', 'stage.tide3': 'Морской дракон',
       'stage.gear': 'Кошка-шестерёнка', 'stage.gear2': 'Заводная шестерёнка', 'stage.gear3': 'Меха-шестерёнка',
       'stage.dragon': 'Кошка-дракончик', 'stage.dragon2': 'Крылатый дракончик', 'stage.dragon3': 'Огненный дракон',
-      'need.links': 'ссылки', 'need.correct': 'связи', 'need.chars': 'символы', 'need.nights': 'поздние вечера', 'need.days': 'дни письма',
+      'breed.lark': 'Кошка-жаворонок', 'breed.hourglass': 'Песочная кошка',
+      'stage.lark': 'Кошка-жаворонок', 'stage.lark2': 'Жаворонок зари', 'stage.lark3': 'Солнечный жаворонок',
+      'stage.hourglass': 'Песочная кошка', 'stage.hourglass2': 'Струящийся песок', 'stage.hourglass3': 'Хранительница времени',
+      'need.links': 'ссылки', 'need.correct': 'связи', 'need.chars': 'символы', 'need.nights': 'поздние вечера', 'need.days': 'дни письма', 'need.dawns': 'ранние утра', 'need.focus': 'сеансы концентрации',
       'home.toNextAny': 'До <b>{stage}</b>: {list}',
       'cats.title': 'Каталог кошек',
       'cats.sub': 'Каждая кошка растёт сама по себе. XP получает только та, что сейчас с тобой',
@@ -40939,7 +40989,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '물방울 고양이', 'stage.tide2': '파도 물방울', 'stage.tide3': '해룡 물방울',
       'stage.gear': '톱니 고양이', 'stage.gear2': '태엽 톱니', 'stage.gear3': '강철 톱니',
       'stage.dragon': '아기용 고양이', 'stage.dragon2': '날개 아기용', 'stage.dragon3': '화룡',
-      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날',
+      'breed.lark': '종달새 고양이', 'breed.hourglass': '모래시계 고양이',
+      'stage.lark': '종달새 고양이', 'stage.lark2': '아침해 종달새', 'stage.lark3': '햇살 종달새',
+      'stage.hourglass': '모래시계 고양이', 'stage.hourglass2': '흐르는 모래시계', 'stage.hourglass3': '시간지기 모래시계',
+      'need.links': '링크', 'need.correct': '이은 카드', 'need.chars': '글자', 'need.nights': '밤에 쓴 날', 'need.days': '쓴 날', 'need.dawns': '아침에 쓴 날', 'need.focus': '집중 세션',
       'home.toNextAny': '<b>{stage}</b>까지: {list}',
       'cats.title': '고양이 도감',
       'cats.sub': '데려온 고양이는 저마다 따로 자라요. 데려온 고양이만 경험치를 받아요',
@@ -41038,7 +41091,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Droplet cat', 'stage.tide2': 'Wave droplet', 'stage.tide3': 'Sea dragon',
       'stage.gear': 'Gear cat', 'stage.gear2': 'Clockwork gear', 'stage.gear3': 'Mecha gear',
       'stage.dragon': 'Dragonling cat', 'stage.dragon2': 'Winged dragonling', 'stage.dragon3': 'Fire dragon',
-      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days',
+      'breed.lark': 'Lark cat', 'breed.hourglass': 'Hourglass cat',
+      'stage.lark': 'Lark cat', 'stage.lark2': 'Sunrise lark', 'stage.lark3': 'Sunbeam lark',
+      'stage.hourglass': 'Hourglass cat', 'stage.hourglass2': 'Sandfall hourglass', 'stage.hourglass3': 'Timekeeper',
+      'need.links': 'links', 'need.correct': 'connections', 'need.chars': 'chars', 'need.nights': 'late nights', 'need.days': 'writing days', 'need.dawns': 'early mornings', 'need.focus': 'focus sessions',
       'home.toNextAny': 'To <b>{stage}</b>: {list}',
       'cats.title': 'Cat catalog',
       'cats.sub': 'Every cat grows on its own. Only the cat with you earns XP',
@@ -41137,7 +41193,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': '水滴貓', 'stage.tide2': '浪花水滴貓', 'stage.tide3': '海龍水滴貓',
       'stage.gear': '齒輪貓', 'stage.gear2': '發條齒輪貓', 'stage.gear3': '機甲齒輪貓',
       'stage.dragon': '幼龍貓', 'stage.dragon2': '飛翼幼龍貓', 'stage.dragon3': '炎龍貓',
-      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數',
+      'breed.lark': '雲雀貓', 'breed.hourglass': '沙漏貓',
+      'stage.lark': '雲雀貓', 'stage.lark2': '晨曦雲雀貓', 'stage.lark3': '日光雲雀貓',
+      'stage.hourglass': '沙漏貓', 'stage.hourglass2': '流沙沙漏貓', 'stage.hourglass3': '時之守護沙漏貓',
+      'need.links': '連結', 'need.correct': '串連', 'need.chars': '字數', 'need.nights': '深夜寫作天數', 'need.days': '寫作天數', 'need.dawns': '早晨寫作天數', 'need.focus': '專注時段',
       'home.toNextAny': '距 <b>{stage}</b>：{list}',
       'cats.title': '貓咪圖鑑',
       'cats.sub': '每隻貓各自成長，只有帶在身邊的那隻會拿到經驗值',
@@ -41236,7 +41295,10 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
       'stage.tide': 'Кошка-капелька', 'stage.tide2': 'Капелька-волна', 'stage.tide3': 'Морской дракон',
       'stage.gear': 'Кошка-шестерёнка', 'stage.gear2': 'Заводная шестерёнка', 'stage.gear3': 'Меха-шестерёнка',
       'stage.dragon': 'Кошка-дракончик', 'stage.dragon2': 'Крылатый дракончик', 'stage.dragon3': 'Огненный дракон',
-      'need.links': 'ссылки', 'need.correct': 'связи', 'need.chars': 'символы', 'need.nights': 'поздние вечера', 'need.days': 'дни письма',
+      'breed.lark': 'Кошка-жаворонок', 'breed.hourglass': 'Песочная кошка',
+      'stage.lark': 'Кошка-жаворонок', 'stage.lark2': 'Жаворонок зари', 'stage.lark3': 'Солнечный жаворонок',
+      'stage.hourglass': 'Песочная кошка', 'stage.hourglass2': 'Струящийся песок', 'stage.hourglass3': 'Хранительница времени',
+      'need.links': 'ссылки', 'need.correct': 'связи', 'need.chars': 'символы', 'need.nights': 'поздние вечера', 'need.days': 'дни письма', 'need.dawns': 'ранние утра', 'need.focus': 'сеансы концентрации',
       'home.toNextAny': 'До <b>{stage}</b>: {list}',
       'cats.title': 'Каталог кошек',
       'cats.sub': 'Каждая кошка растёт сама по себе. XP получает только та, что сейчас с тобой',
@@ -47695,6 +47757,104 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     },
   );
 
+  /* ── 종달새: 이마의 작은 해 · 깃털 꼬리 → 아침해(깃 장식 · 가슴 털 · 등 뒤로 떠오르는 해) → 햇살(해 후광 · 날개 · 빛가루) ── */
+  const SUN = { Y: GOLD, y: '#fff3a8', R: '#ffa64d', O: '#c7742a' };
+  const LARK_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', '.OBBBBBBBBBBBO.', '.OBBBBMMMBBBBO.'];
+  const LARK_FEET = ['..OBBBBBBBBBO..', '...OBOOOOOBO...', '...OOO...OOO...'];
+  const LARK_E = { eye: { w: 2, h: 2, spread: 3, dy: 0 } };
+  function larkSun(g, a, t) {
+    this.pattern(['.Y.', 'YyY', '.Y.'], a.hx - 1, a.top, SUN);
+    // 머리 위 깃 한 올 (가끔 까딱)
+    this.pattern(per(t, 2.6, 0.4) ? ['.L', 'L.'] : ['L.', 'L.'], a.hx, a.top - 2, { L: g.c.light });
+  }
+  function larkCrest(g, a, t) {
+    // 깃 장식 세 올 (바람에 흔들린다)
+    const s = per(t, 2, 1) ? 0 : 1;
+    this.pattern(['R.y.R', '.RyR.', '..R..'], a.hx - 2 + s, a.top - 5, SUN);
+  }
+  const lark1 = form([...LARK_HEAD, '..OBBBMMMBBBO..', ...LARK_FEET], { x: 13, y: 4, rows: ['..OO.', '.OLLO', 'OLBLO', 'OLLO.', 'OBO..', 'OO...'] }, { ...LARK_E, mark: larkSun });
+  const lark2 = form(
+    [...LARK_HEAD, '.OBBBBMMMBBBBO.', '..OBBBMMMBBBO..', ...LARK_FEET],
+    { x: 13, y: 3, rows: ['...OO', '..OLO', '.OLLO', 'OLBLO', 'OLLO.', 'OBO..', 'OO...'] },
+    {
+      ...LARK_E,
+      // 등 뒤에서 떠오르는 아침해 (천천히 오르락내리락)
+      back: awake(function (g, a, t) {
+        const up = per(t, 4, 2) ? 0 : 1;
+        this.pattern(['...YYYY...', '.YYyyyyYY.', 'YYyyyyyyYY', 'YYyyyyyyYY'], a.hx - 4, a.top - 7 + up, SUN, false);
+      }),
+      mark: marks(larkSun, awake(larkCrest), awake(ruff)),
+    },
+  );
+  const lark3 = form(
+    [...LARK_HEAD, 'OBBBBBMMMBBBBBO', 'OBBSBBMMMBBSBBO', '.OBBBBMMMBBBBO.', ...LARK_FEET],
+    { x: 13, y: 2, rows: ['....OO', '...OLO', '..OLLO', '.OLBLO', 'OLBLO.', 'OLLO..', 'OBO...', 'OO....'] },
+    {
+      ...LARK_E,
+      sparkle: '#fff7d6',
+      back: marks(
+        awake(function (g, a, t) {
+          // 머리 뒤 해 후광: 둥근 테와 천천히 도는 빛살
+          for (let k = 0; k < 16; k++) {
+            const ang = (k * Math.PI * 2) / 16;
+            this.px(a.hx + Math.cos(ang) * 10, a.top + 4 + Math.sin(ang) * 9, k % 2 ? SUN.Y : SUN.y, false);
+          }
+          for (let k = 0; k < 8; k++) {
+            const ang = t * 0.5 + (k * Math.PI * 2) / 8;
+            for (let r = 12; r <= 14; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r === 14 ? SUN.y : SUN.R, false);
+          }
+        }),
+        wings((g) => ({ O: SUN.O, W: g.c.body, S: SUN.Y })),
+      ),
+      mark: marks(larkSun, awake(larkCrest), awake(ruff), orbit('#ffe9a8', 3, 13, 1.2)),
+    },
+  );
+
+  /* ── 모래시계: 이마의 모래시계 · 잘록한 허리 · 추 꼬리 → 흐르는 모래(허리띠 · 떨어지는 모래알) → 시간지기(등 뒤 시계판 · 도는 바늘 · 모래알 고리) ── */
+  const SAND = { G: '#8a5a2b', g: '#f4c86a', S: '#d9a23f', W: '#fff1c2' };
+  const HG_HEAD = ['.OBBBBBBBBBBBO.', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', '.OBBBBBBBBBBBO.', '..OBBBBBBBBBO..'];
+  const HG_FEET = ['..OBBOOOOOBBO..', '...OO.....OO...'];
+  function hourglassMark(g, a, t) {
+    // 위아래가 번갈아 차는 모래
+    this.pattern(per(t, 3, 1.5) ? ['GWG', '.G.', 'G.G'] : ['G.G', '.G.', 'GWG'], a.hx - 1, a.top, SAND);
+  }
+  function sash(g, a) {
+    // 허리띠와 버클 (볼 아래, 잘록한 허리 바로 밑)
+    this.rect(a.left + 2, a.neck + 1, 9, 1, SAND.G);
+    this.pattern(['gSg'], a.hx - 1, a.neck + 1, SAND);
+  }
+  const hourglass1 = form([...HG_HEAD, '.OBBBMMMMMBBBO.', '.OBBBMMMMMBBBO.', ...HG_FEET], { x: 13, y: 5, rows: ['.OO', 'OLO', '.OO', '.O.', '.O.'] }, { mark: hourglassMark });
+  const hourglass2 = form(
+    [...HG_HEAD, '.OBBBMMMMMBBBO.', 'OBBBBMMMMMBBBBO', '.OBBBMMMMMBBBO.', ...HG_FEET],
+    { x: 13, y: 4, rows: ['.OO.', 'OLLO', '.OO.', '.O..', '.O..', '.O..'] },
+    {
+      mark: marks(hourglassMark, awake(sash), awake(function (g, a, t) {
+        // 허리띠에서 발 사이로 떨어지는 모래알
+        for (let k = 0; k < 4; k++) {
+          const p = (t * 0.5 + k / 4) % 1;
+          this.px(a.hx - 1 + (k % 3), a.neck + 2 + Math.round(p * (a.ground - a.neck - 4)), k % 2 ? SAND.g : SAND.W, false);
+        }
+      })),
+    },
+  );
+  const hourglass3 = form(
+    [...HG_HEAD, '.OBBBMMMMMBBBO.', 'OBBBBMMMMMBBBBO', 'OBBSBMMMMMBSBBO', '.OBBBMMMMMBBBO.', ...HG_FEET],
+    { x: 13, y: 3, rows: ['.OOO.', 'OLLLO', 'OLSLO', '.OOO.', '..O..', '..O..', '..O..'] },
+    {
+      sparkle: '#fff1c2',
+      back: awake(function (g, a, t) {
+        // 등 뒤 시계판: 둥근 테 · 눈금 · 테 안쪽을 도는 바늘
+        for (let k = 0; k < 20; k++) {
+          const ang = (k * Math.PI * 2) / 20;
+          this.px(a.hx + Math.cos(ang) * 12, a.top + 4 + Math.sin(ang) * 11, k % 5 ? SAND.G : SAND.g, false);
+        }
+        const ang = t * 0.8 - Math.PI / 2;
+        for (let r = 7; r <= 11; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r < 11 ? SAND.S : SAND.W, false);
+      }),
+      mark: marks(hourglassMark, awake(sash), orbit('#f4c86a', 4, 13, 0.8)),
+    },
+  );
+
   Object.assign(S.STAGE, {
     cat: cheese1, cat2: cheese2, cat3: cheese3,
     puff: puffBase, puff2, puff3,
@@ -47708,6 +47868,8 @@ for (const lang of Object.keys(UI)) Object.assign(I.UI[lang], UI[lang]);
     tide: tide1, tide2, tide3,
     gear: gear1, gear2, gear3,
     dragon: dragon1, dragon2, dragon3,
+    lark: lark1, lark2, lark3,
+    hourglass: hourglass1, hourglass2, hourglass3,
   });
   S.STAGES = Object.keys(S.STAGE);
 })(window);

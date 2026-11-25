@@ -15,8 +15,8 @@ const test = (name, fn) => tests.push({ name, fn });
 
 /* ── 품종 ── */
 
-test('breeds: 12 품종, 처음 고양이는 원래 진화 조건 그대로, 품종마다 단계 열쇠가 겹치지 않는다', () => {
-  assert.strictEqual(BREEDS.length, 12);
+test('breeds: 14 품종, 처음 고양이는 원래 진화 조건 그대로, 품종마다 단계 열쇠가 겹치지 않는다', () => {
+  assert.strictEqual(BREEDS.length, 14);
   const cheese = breedOf('cheese');
   assert.deepStrictEqual(cheese.stages.map((s) => s.key), ['cat', 'cat2', 'cat3']);
   assert.deepStrictEqual(cheese.stages[1].need, { level: 15, links: 10, correct: 20 });
@@ -29,6 +29,34 @@ test('breeds: 12 품종, 처음 고양이는 원래 진화 조건 그대로, 품
     assert.ok(Object.keys(b.stages[1].need).length >= 2, b.key);
   }
   assert.ok(BREEDS.filter((b) => b.rarity === 'rare').length >= 1);
+});
+
+test('breeds: 단계마다 네 언어 이름 · 그림 · 전용 모션이 있고, 진화 조건의 습관은 habitsOf 가 세는 것이다', () => {
+  const fs = require('fs');
+  const I18N = require(path.join(src, 'kit/i18n'));
+  globalThis.I18N = I18N;
+  for (const f of ['i18n-obsidian', 'i18n-goals', 'i18n-v2', 'i18n-plus']) require(path.join(src, 'kit', f));
+  const art = fs.readFileSync(path.join(src, 'kit/breeds.js'), 'utf8');
+  const registered = art.slice(art.indexOf('Object.assign(S.STAGE'));
+  const motions = fs.readFileSync(path.join(src, 'kit/motions.js'), 'utf8');
+  const { STAGE_MOTIONS } = require(path.join(src, 'core/breeds'));
+  const habits = Object.keys(C.habitsOf(C.seed({}, 0), 'cheese', { chars: 0, links: 0 }));
+  for (const b of BREEDS) {
+    for (const lang of Object.keys(I18N.UI)) {
+      assert.ok(I18N.UI[lang]['breed.' + b.key], `${lang} breed.${b.key}`);
+      for (const st of b.stages) assert.ok(I18N.UI[lang]['stage.' + st.key], `${lang} stage.${st.key}`);
+      for (const st of b.stages) for (const k of Object.keys(st.need).filter((k) => k !== 'level')) assert.ok(I18N.UI[lang]['need.' + k], `${lang} need.${k}`);
+    }
+    for (const st of b.stages) {
+      assert.ok(new RegExp(`\\b${st.key}\\b`).test(registered), `art ${st.key}`);
+      for (const k of Object.keys(st.need).filter((k) => k !== 'level')) assert.ok(habits.includes(k), `${st.key} need.${k} is counted`);
+    }
+    for (const st of b.stages.slice(1)) {
+      const list = STAGE_MOTIONS[st.key] || [];
+      assert.ok(list.length, `motions ${st.key}`);
+      for (const m of list) assert.ok(new RegExp(`^    ${m}: \\{`, 'm').test(motions), `motion ${m}`);
+    }
+  }
 });
 
 /* ── 처음 상태 ── */
@@ -69,9 +97,34 @@ test('habitsOf: 글자 · 맞힌 문제 · 밤 · 날은 고양이마다, 링크
   s = C.recordActivity(s, 300, 23);
   s = C.recordActivity(s, 300, 23);
   s = C.recordActivity(s, 301, 14);
+  s = C.recordActivity(s, 302, 7);
+  s = C.recordActivity(s, 302, 8);
+  s = C.addFocus(s);
   const h = C.habitsOf(s, 'puff', { chars: 600, links: 9 });
-  assert.deepStrictEqual(h, { chars: 500, correct: 1, links: 9, nights: 1, days: 2 });
+  assert.deepStrictEqual(h, { chars: 500, correct: 1, links: 9, nights: 1, days: 3, dawns: 1, focus: 1 });
   assert.strictEqual(C.habitsOf(s, 'cheese', { chars: 600, links: 9 }).correct, 5);
+  assert.strictEqual(C.habitsOf(s, 'cheese', { chars: 600, links: 9 }).focus, 0, '집중은 데려온 고양이만');
+});
+
+test('habitsOf · recordActivity: 옛 저장(dawns · focus 없음)도 0 에서 센다', () => {
+  let s = C.seed({ correct: 0 });
+  delete s.cats.cheese.dawns;
+  delete s.cats.cheese.focus;
+  assert.deepStrictEqual(C.habitsOf(s, 'cheese', { chars: 0, links: 0 }), { chars: 0, correct: 0, links: 0, nights: 0, days: 0, dawns: 0, focus: 0 });
+  s = C.recordActivity(s, 10, 6);
+  s = C.addFocus(s);
+  const h = C.habitsOf(s, 'cheese', { chars: 0, links: 0 });
+  assert.strictEqual(h.dawns, 1);
+  assert.strictEqual(h.focus, 1);
+});
+
+test('checkTriggers: 아침에 쓴 날 · 집중 세션 수로도 만남 표가 생긴다', () => {
+  const none = { chars: 0, correct: 0, links: 0, tidy: 0, streak: 0, night: false, weekend: false, notesToday: 0, bigNotes: 0, allClear: false, dawn: false, focus: 0 };
+  const quiet = C.checkTriggers(C.seed({}, 0), none, 10, () => 0);
+  assert.deepStrictEqual(quiet.fired, []);
+  const r = C.checkTriggers(C.seed({}, 0), { ...none, dawn: true, focus: 3 }, 10, () => 0);
+  assert.deepStrictEqual(r.fired.sort(), ['dawn', 'focus3']);
+  assert.strictEqual(r.state.tickets.length, 2);
 });
 
 test('growth: 품종마다 단계 · 조건이 다르고, 조건은 레벨 + 그 품종의 습관', () => {

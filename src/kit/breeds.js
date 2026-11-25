@@ -818,6 +818,104 @@
     },
   );
 
+  /* ── 종달새: 이마의 작은 해 · 깃털 꼬리 → 아침해(깃 장식 · 가슴 털 · 등 뒤로 떠오르는 해) → 햇살(해 후광 · 날개 · 빛가루) ── */
+  const SUN = { Y: GOLD, y: '#fff3a8', R: '#ffa64d', O: '#c7742a' };
+  const LARK_HEAD = ['.OBBBBBBBBBBBO.', '.OBBBBBBBBBBBO.', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', '.OBBBBBBBBBBBO.', '.OBBBBMMMBBBBO.'];
+  const LARK_FEET = ['..OBBBBBBBBBO..', '...OBOOOOOBO...', '...OOO...OOO...'];
+  const LARK_E = { eye: { w: 2, h: 2, spread: 3, dy: 0 } };
+  function larkSun(g, a, t) {
+    this.pattern(['.Y.', 'YyY', '.Y.'], a.hx - 1, a.top, SUN);
+    // 머리 위 깃 한 올 (가끔 까딱)
+    this.pattern(per(t, 2.6, 0.4) ? ['.L', 'L.'] : ['L.', 'L.'], a.hx, a.top - 2, { L: g.c.light });
+  }
+  function larkCrest(g, a, t) {
+    // 깃 장식 세 올 (바람에 흔들린다)
+    const s = per(t, 2, 1) ? 0 : 1;
+    this.pattern(['R.y.R', '.RyR.', '..R..'], a.hx - 2 + s, a.top - 5, SUN);
+  }
+  const lark1 = form([...LARK_HEAD, '..OBBBMMMBBBO..', ...LARK_FEET], { x: 13, y: 4, rows: ['..OO.', '.OLLO', 'OLBLO', 'OLLO.', 'OBO..', 'OO...'] }, { ...LARK_E, mark: larkSun });
+  const lark2 = form(
+    [...LARK_HEAD, '.OBBBBMMMBBBBO.', '..OBBBMMMBBBO..', ...LARK_FEET],
+    { x: 13, y: 3, rows: ['...OO', '..OLO', '.OLLO', 'OLBLO', 'OLLO.', 'OBO..', 'OO...'] },
+    {
+      ...LARK_E,
+      // 등 뒤에서 떠오르는 아침해 (천천히 오르락내리락)
+      back: awake(function (g, a, t) {
+        const up = per(t, 4, 2) ? 0 : 1;
+        this.pattern(['...YYYY...', '.YYyyyyYY.', 'YYyyyyyyYY', 'YYyyyyyyYY'], a.hx - 4, a.top - 7 + up, SUN, false);
+      }),
+      mark: marks(larkSun, awake(larkCrest), awake(ruff)),
+    },
+  );
+  const lark3 = form(
+    [...LARK_HEAD, 'OBBBBBMMMBBBBBO', 'OBBSBBMMMBBSBBO', '.OBBBBMMMBBBBO.', ...LARK_FEET],
+    { x: 13, y: 2, rows: ['....OO', '...OLO', '..OLLO', '.OLBLO', 'OLBLO.', 'OLLO..', 'OBO...', 'OO....'] },
+    {
+      ...LARK_E,
+      sparkle: '#fff7d6',
+      back: marks(
+        awake(function (g, a, t) {
+          // 머리 뒤 해 후광: 둥근 테와 천천히 도는 빛살
+          for (let k = 0; k < 16; k++) {
+            const ang = (k * Math.PI * 2) / 16;
+            this.px(a.hx + Math.cos(ang) * 10, a.top + 4 + Math.sin(ang) * 9, k % 2 ? SUN.Y : SUN.y, false);
+          }
+          for (let k = 0; k < 8; k++) {
+            const ang = t * 0.5 + (k * Math.PI * 2) / 8;
+            for (let r = 12; r <= 14; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r === 14 ? SUN.y : SUN.R, false);
+          }
+        }),
+        wings((g) => ({ O: SUN.O, W: g.c.body, S: SUN.Y })),
+      ),
+      mark: marks(larkSun, awake(larkCrest), awake(ruff), orbit('#ffe9a8', 3, 13, 1.2)),
+    },
+  );
+
+  /* ── 모래시계: 이마의 모래시계 · 잘록한 허리 · 추 꼬리 → 흐르는 모래(허리띠 · 떨어지는 모래알) → 시간지기(등 뒤 시계판 · 도는 바늘 · 모래알 고리) ── */
+  const SAND = { G: '#8a5a2b', g: '#f4c86a', S: '#d9a23f', W: '#fff1c2' };
+  const HG_HEAD = ['.OBBBBBBBBBBBO.', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', 'OBBBBBBBBBBBBBO', '.OBBBBBBBBBBBO.', '..OBBBBBBBBBO..'];
+  const HG_FEET = ['..OBBOOOOOBBO..', '...OO.....OO...'];
+  function hourglassMark(g, a, t) {
+    // 위아래가 번갈아 차는 모래
+    this.pattern(per(t, 3, 1.5) ? ['GWG', '.G.', 'G.G'] : ['G.G', '.G.', 'GWG'], a.hx - 1, a.top, SAND);
+  }
+  function sash(g, a) {
+    // 허리띠와 버클 (볼 아래, 잘록한 허리 바로 밑)
+    this.rect(a.left + 2, a.neck + 1, 9, 1, SAND.G);
+    this.pattern(['gSg'], a.hx - 1, a.neck + 1, SAND);
+  }
+  const hourglass1 = form([...HG_HEAD, '.OBBBMMMMMBBBO.', '.OBBBMMMMMBBBO.', ...HG_FEET], { x: 13, y: 5, rows: ['.OO', 'OLO', '.OO', '.O.', '.O.'] }, { mark: hourglassMark });
+  const hourglass2 = form(
+    [...HG_HEAD, '.OBBBMMMMMBBBO.', 'OBBBBMMMMMBBBBO', '.OBBBMMMMMBBBO.', ...HG_FEET],
+    { x: 13, y: 4, rows: ['.OO.', 'OLLO', '.OO.', '.O..', '.O..', '.O..'] },
+    {
+      mark: marks(hourglassMark, awake(sash), awake(function (g, a, t) {
+        // 허리띠에서 발 사이로 떨어지는 모래알
+        for (let k = 0; k < 4; k++) {
+          const p = (t * 0.5 + k / 4) % 1;
+          this.px(a.hx - 1 + (k % 3), a.neck + 2 + Math.round(p * (a.ground - a.neck - 4)), k % 2 ? SAND.g : SAND.W, false);
+        }
+      })),
+    },
+  );
+  const hourglass3 = form(
+    [...HG_HEAD, '.OBBBMMMMMBBBO.', 'OBBBBMMMMMBBBBO', 'OBBSBMMMMMBSBBO', '.OBBBMMMMMBBBO.', ...HG_FEET],
+    { x: 13, y: 3, rows: ['.OOO.', 'OLLLO', 'OLSLO', '.OOO.', '..O..', '..O..', '..O..'] },
+    {
+      sparkle: '#fff1c2',
+      back: awake(function (g, a, t) {
+        // 등 뒤 시계판: 둥근 테 · 눈금 · 테 안쪽을 도는 바늘
+        for (let k = 0; k < 20; k++) {
+          const ang = (k * Math.PI * 2) / 20;
+          this.px(a.hx + Math.cos(ang) * 12, a.top + 4 + Math.sin(ang) * 11, k % 5 ? SAND.G : SAND.g, false);
+        }
+        const ang = t * 0.8 - Math.PI / 2;
+        for (let r = 7; r <= 11; r++) this.px(a.hx + Math.cos(ang) * r, a.top + 4 + Math.sin(ang) * r * 0.9, r < 11 ? SAND.S : SAND.W, false);
+      }),
+      mark: marks(hourglassMark, awake(sash), orbit('#f4c86a', 4, 13, 0.8)),
+    },
+  );
+
   Object.assign(S.STAGE, {
     cat: cheese1, cat2: cheese2, cat3: cheese3,
     puff: puffBase, puff2, puff3,
@@ -831,6 +929,8 @@
     tide: tide1, tide2, tide3,
     gear: gear1, gear2, gear3,
     dragon: dragon1, dragon2, dragon3,
+    lark: lark1, lark2, lark3,
+    hourglass: hourglass1, hourglass2, hourglass3,
   });
   S.STAGES = Object.keys(S.STAGE);
 })(window);
