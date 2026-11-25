@@ -73,8 +73,9 @@ function newCat(breed, { raw, chars, now }, correct = 0) {
 
 const caught = (s) => Object.keys(s.cats);
 
-// 고양이 한 마리 (옛 저장에 없는 습관 칸은 빈 값으로 채워서). 습관을 읽고 올리는 곳은 다 이걸 거친다
-const HABIT_DEFAULTS = { correct: 0, focus: 0, days: [], nights: [], dawns: [] };
+// 고양이 한 마리를 읽을 때 옛 저장에 없는 습관 칸은 빈 값으로 본다 (저장에는 쓰지 않는다).
+// 습관을 읽는 곳은 다 catOf 를 거치고, 습관 칸을 새로 만들면 여기 한 줄만 더하면 된다 (합치기 mergeCatHabits 도 이걸 본다)
+const HABIT_DEFAULTS = { correct: 0, focus: 0, peak: 0, days: [], nights: [], dawns: [] };
 const catOf = (s, key) => ({ ...HABIT_DEFAULTS, ...s.cats[key] });
 
 // raw 에 더하면 데려온 고양이의 경험치가 되는 값
@@ -115,10 +116,11 @@ const addFocus = (s) => countHabit(s, 'focus');
 function recordActivity(s, day, hour) {
   const c = catOf(s, s.active);
   const add = (list) => (list.includes(day) ? list : [...list, day].slice(-KEEP_DAYS));
-  return setCat(s, s.active, { days: add(c.days), nights: isNight(hour) ? add(c.nights) : c.nights, dawns: isDawn(hour) ? add(c.dawns) : c.dawns });
+  // 그 시간이 아니면 그 목록은 건드리지 않는다 (옛 저장에 빈 목록을 새로 쓰지 않게)
+  return setCat(s, s.active, { days: add(c.days), ...(isNight(hour) && { nights: add(c.nights) }), ...(isDawn(hour) && { dawns: add(c.dawns) }) });
 }
 
-const peakOf = (s) => s.cats[s.active].peak || 0;
+const peakOf = (s) => catOf(s, s.active).peak;
 const notePeak = (s, stage) => (stage > peakOf(s) ? setCat(s, s.active, { peak: stage }) : s);
 
 function habitsOf(s, key, { chars, links }) {
@@ -126,14 +128,18 @@ function habitsOf(s, key, { chars, links }) {
   return { chars: Math.max(0, catChars(s, key, chars)), correct: c.correct, links, nights: c.nights.length, days: c.days.length, dawns: c.dawns.length, focus: c.focus };
 }
 
-// 두 기기에서 같은 고양이가 자랐다 (plugin/sync.js). 센 것은 sum(b, l, r) 로 합치고(기준을 알면 양쪽에서 는 만큼), 날 목록은 합집합,
-// 단계 바닥은 높은 쪽. 나머지(경험치 기준점 · 생김새 · 이름)는 이 기기 것
-function mergeCatHabits(b, l, r, sum) {
-  const L = { ...HABIT_DEFAULTS, ...l }, R = { ...HABIT_DEFAULTS, ...r };
-  const days = (k) => [...new Set([...L[k], ...R[k]])].sort((x, y) => x - y).slice(-KEEP_DAYS);
-  // 센 것: 그 칸이 없는 쪽(옛 저장)은 '안 셌다'로 두고 sum 에 맡긴다 (0 으로 채우면 기준보다 줄어든 걸로 본다)
-  const count = (k) => sum(b ? b[k] : undefined, l[k], r[k]) || 0;
-  return { ...l, correct: count('correct'), focus: count('focus'), days: days('days'), nights: days('nights'), dawns: days('dawns'), peak: Math.max(L.peak || 0, R.peak || 0) };
+// 두 기기에서 같은 고양이가 자랐다 (plugin/sync.js). 습관 칸마다: 센 것(숫자)은 큰 쪽, 날 목록은 합집합.
+// 더하지 않는다: 같은 파일을 두 번 합치거나 기준이 오래되면 두 번 센다. 큰 쪽은 몇 번 합쳐도 같다
+// (대신 두 기기에서 한 고양이를 동시에 키우면 그동안 한쪽 몫은 잃는다). 양쪽 다 없는 칸은 만들지 않는다.
+// 나머지(경험치 기준점 · 생김새 · 이름)는 이 기기 것
+function mergeCatHabits(mine, theirs) {
+  const merged = Object.keys(HABIT_DEFAULTS)
+    .filter((k) => k in mine || k in theirs)
+    .map((k) => {
+      const a = mine[k] ?? HABIT_DEFAULTS[k], b = theirs[k] ?? HABIT_DEFAULTS[k];
+      return [k, Array.isArray(a) ? [...new Set([...a, ...b])].sort((x, y) => x - y).slice(-KEEP_DAYS) : Math.max(a, b)];
+    });
+  return { ...mine, ...Object.fromEntries(merged) };
 }
 
 /* ── 만남 ── */
@@ -193,6 +199,6 @@ function tameChance({ correct, price, rarity }) {
 module.exports = {
   STRAY_MS,
   isNight, isDawn, has,
-  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, mergeCatHabits, setCat, peakOf, notePeak,
+  seed, caught, xpAdjust, catXp, catChars, switchTo, adopt, addCorrect, addFocus, recordActivity, habitsOf, catOf, mergeCatHabits, setCat, peakOf, notePeak,
   checkTriggers, rollDaily, ticketDue, pickBreed, startStray, strayHere, endStray, tameChance,
 };

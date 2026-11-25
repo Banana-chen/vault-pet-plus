@@ -162,7 +162,7 @@ class Collector {
       const look = key === s.active ? this.lookNow() : this.lookOf(key);
       const level = key === s.active && this.host.growth ? this.host.growth.level : levelOf(C.catXp(s, key, raw));
       const stages = breedOf(c.breed).stages;
-      const stage = key === s.active && this.host.growth ? this.host.growth.stageKey : stages[Math.min(c.peak || 0, stages.length - 1)].key;
+      const stage = key === s.active && this.host.growth ? this.host.growth.stageKey : stages[Math.min(C.catOf(s, key).peak, stages.length - 1)].key;
       const acc = Object.values(look.outfit || {}).filter(Boolean).join(',') || 'none';
       return { key, breed: c.breed, name: look.name, fur: look.fur, ears: look.ears, acc, level, stage, active: key === s.active, at: c.at };
     });

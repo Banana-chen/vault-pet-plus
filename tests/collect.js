@@ -118,6 +118,14 @@ test('habitsOf · recordActivity: 옛 저장(dawns · focus 없음)도 0 에서 
   s = C.addFocus(s);
   const h = C.habitsOf(s, 'cheese', { chars: 0, links: 0 });
   assert.strictEqual(h.dawns, 1);
+  assert.strictEqual(C.peakOf(s), 0);
+  // 그 시간이 아니면 없던 날 목록을 새로 쓰지 않는다
+  let t = C.seed({ correct: 0 });
+  delete t.cats.cheese.dawns;
+  delete t.cats.cheese.peak;
+  t = C.recordActivity(t, 10, 14);
+  assert.ok(!('dawns' in t.cats.cheese));
+  assert.strictEqual(C.peakOf(t), 0);
   assert.strictEqual(h.focus, 1);
 });
 
